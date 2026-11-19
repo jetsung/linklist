@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理 · LinkList</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>用户管理</h1>
+      <form id="user-form" class="row">
+        <input id="u-name" placeholder="用户名" required>
+        <input id="u-pass" type="password" placeholder="口令（≥8 位）" required>
+        <label class="row"><input type="checkbox" id="u-admin"> 管理员</label>
+        <button class="btn primary" type="submit">创建用户</button>
+      </form>
+      <div id="user-msg"></div>
+      <div id="users"></div>
+    </div>
+    <div class="card">
+      <h1>全部书签（原始数据）</h1>
+      <div id="data"></div>
+      <div id="data-pager"></div>
+    </div>
+    <div class="card">
+      <h1>抓取任务</h1>
+      <div id="tasks"></div>
+    </div>
+    <div class="card">
+      <h1>审计日志</h1>
+      <div id="audit"></div>
+    </div>
+    <div class="card">
+      <h1>全局设置</h1>
+      <form id="settings-form" class="row">
+        <label class="row"><input type="checkbox" id="guest-sharing"> 访客共享（LINKLIST_GUEST_SHARING）</label>
+        <button class="btn primary" type="submit">保存设置</button>
+      </form>
+      <div id="settings-msg"></div>
+    </div>
+  </div>
+  <script type="module" src="/assets/admin.js"></script>
+</body>
+</html>

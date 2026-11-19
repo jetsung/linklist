@@ -1,0 +1,165 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="书签">
+  <ld-bookmark-page class="bookmarks-page grid columns-md-1">
+    <main class="main col-2" aria-labelledby="main-heading">
+      <div class="section-header">
+        <h1 id="main-heading">书签 <span class="text-gray" id="bookmarks-total"></span></h1>
+        <div class="header-controls">
+          <div class="search-container">
+            <form id="search" role="search">
+              <input id="search-input" name="q" class="form-input"
+                     placeholder="搜索：关键词或 #标签" autocomplete="off" />
+            </form>
+            <ld-dropdown class="search-options dropdown dropdown-right">
+              <button type="button" aria-label="搜索选项" class="btn dropdown-toggle">
+                <svg width="20" height="20"><use href="/icons.svg#preferences"></use></svg>
+              </button>
+              <div class="menu" tabindex="0">
+                <div class="form-group">
+                  <label class="form-label" for="sort">排序</label>
+                  <select id="sort" class="form-select select-sm">
+                    <option value="added_desc">添加时间（新→旧）</option>
+                    <option value="added_asc">添加时间（旧→新）</option>
+                    <option value="modified_desc">修改时间（新→旧）</option>
+                    <option value="modified_asc">修改时间（旧→新）</option>
+                    <option value="title_asc">标题（A→Z）</option>
+                    <option value="title_desc">标题（Z→A）</option>
+                  </select>
+                </div>
+                <div class="form-group radio-group" role="radiogroup" aria-labelledby="search-shared-label">
+                  <label id="search-shared-label" class="form-label">共享过滤</label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="shared-filter" value="off" checked /><i class="form-icon"></i> 全部
+                  </label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="shared-filter" value="yes" /><i class="form-icon"></i> 仅共享
+                  </label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="shared-filter" value="no" /><i class="form-icon"></i> 仅未共享
+                  </label>
+                </div>
+                <div class="form-group radio-group" role="radiogroup" aria-labelledby="search-unread-label">
+                  <label id="search-unread-label" class="form-label">未读过滤</label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="unread-filter" value="off" checked /><i class="form-icon"></i> 全部
+                  </label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="unread-filter" value="yes" /><i class="form-icon"></i> 仅未读
+                  </label>
+                  <label class="form-radio form-inline">
+                    <input type="radio" name="unread-filter" value="no" /><i class="form-icon"></i> 仅已读
+                  </label>
+                </div>
+                <div class="actions">
+                  <button type="button" class="btn btn-sm btn-primary" id="apply-prefs">应用</button>
+                  <button type="button" class="btn btn-sm" id="save-prefs">保存为默认</button>
+                </div>
+              </div>
+            </ld-dropdown>
+          </div>
+          <button id="bulk-edit-toggle" class="btn hide-sm ml-2 bulk-edit-active-toggle" type="button" title="批量编辑">
+            <svg width="20" height="20"><use href="/icons.svg#bulk-edit"></use></svg>
+          </button>
+        </div>
+      </div>
+
+      <form class="bookmark-actions" autocomplete="off" onsubmit="return false">
+        <div id="bulk-edit-bar" class="bulk-edit-bar">
+          <label class="form-checkbox bulk-edit-checkbox all">
+            <input type="checkbox" id="bulk-select-all" />
+            <i class="form-icon"></i>
+          </label>
+          <select id="bulk-action" name="bulk_action" class="form-select select-sm">
+            <option value="bulk_archive">归档</option>
+            <option value="bulk_unarchive">取消归档</option>
+            <option value="bulk_delete">删除</option>
+            <option value="bulk_tag">添加标签</option>
+            <option value="bulk_untag">移除标签</option>
+            <option value="bulk_read">标为已读</option>
+            <option value="bulk_unread">标为未读</option>
+            <option value="bulk_share">共享</option>
+            <option value="bulk_unshare">取消共享</option>
+            <option value="bulk_refresh">从网站刷新</option>
+          </select>
+          <input id="bulk-tag-string" class="form-input input-sm" placeholder="标签名…" style="display:none;max-width:140px" />
+          <button id="bulk-execute" class="btn btn-link btn-sm" type="button">执行</button>
+          <button id="bulk-exit" class="btn btn-link btn-sm" type="button">退出批量编辑</button>
+        </div>
+        <div id="bookmark-list-container">
+          <section aria-label="书签列表">
+            <ul id="bookmark-list" class="bookmark-list" role="list" tabindex="-1"></ul>
+            <div class="bookmark-pagination">
+              <ul class="pagination" role="list"></ul>
+            </div>
+          </section>
+        </div>
+      </form>
+    </main>
+
+    <div class="side-panel col-1 hide-md">
+      <section aria-labelledby="bundles-heading">
+        <div class="section-header no-wrap">
+          <h2 id="bundles-heading">组合</h2>
+          <ld-dropdown class="dropdown dropdown-right ml-auto">
+            <button class="btn btn-noborder dropdown-toggle" aria-label="组合菜单">
+              <svg width="20" height="20"><use href="/icons.svg#menu"></use></svg>
+            </button>
+            <ul class="menu" role="list" tabindex="-1">
+              <li class="menu-item"><a href="/bundles" class="menu-link">管理组合</a></li>
+            </ul>
+          </ld-dropdown>
+        </div>
+        <ul id="bundle-menu" class="bundle-menu"></ul>
+      </section>
+      <section aria-labelledby="tags-heading">
+        <div class="section-header no-wrap">
+          <h2 id="tags-heading">标签</h2>
+          <ld-dropdown class="dropdown dropdown-right ml-auto">
+            <button class="btn btn-noborder dropdown-toggle" aria-label="标签菜单">
+              <svg width="20" height="20"><use href="/icons.svg#menu"></use></svg>
+            </button>
+            <ul class="menu" role="list" tabindex="-1">
+              <li class="menu-item"><a href="/tags" class="menu-link">管理标签</a></li>
+            </ul>
+          </ld-dropdown>
+        </div>
+        <div id="tag-cloud-container">
+          <div id="tag-cloud" class="tag-cloud">
+            <p class="selected-tags"></p>
+            <div class="unselected-tags"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </ld-bookmark-page>
+</Layout>
+
+<div id="details-overlay" class="modal bookmark-details">
+  <div class="modal-overlay" data-close-modal></div>
+  <div class="modal-container" role="dialog" aria-modal="true">
+    <div class="modal-header d-flex justify-between align-center">
+      <h2 class="modal-title"></h2>
+      <button class="btn btn-clear" data-close-modal aria-label="关闭">
+        <svg width="20" height="20"><use href="/icons.svg#close"></use></svg>
+      </button>
+    </div>
+    <div class="modal-body"></div>
+    <div class="modal-footer">
+      <div class="actions d-flex justify-between">
+        <div class="left-actions">
+          <a class="btn btn-wide modal-edit" href="#">编辑</a>
+        </div>
+        <div class="right-actions">
+          <button class="btn btn-error btn-wide modal-delete" type="button">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { initBookmarksPage } from '../scripts/bookmarks-page';
+  initBookmarksPage('active');
+</script>

@@ -1,0 +1,20 @@
+---
+// 根路径：已登录进书签列表；未登录按全局设置 landing_page 跳转（login → 登录页，shared_bookmarks → 共享书签页）。
+---
+<meta http-equiv="refresh" content="0; url=/bookmarks" />
+<script>
+  import { get } from '../scripts/api';
+  (async () => {
+    let landing = 'login';
+    try {
+      const g = await get('/api/v1/global-settings');
+      if (g?.landing_page === 'shared_bookmarks') landing = 'shared_bookmarks';
+    } catch { /* 默认登录页 */ }
+    try {
+      const s = await get('/api/v1/auth/status');
+      window.location.href = s?.authenticated ? '/bookmarks' : (landing === 'shared_bookmarks' ? '/shared' : '/login');
+    } catch {
+      window.location.href = landing === 'shared_bookmarks' ? '/shared' : '/login';
+    }
+  })();
+</script>

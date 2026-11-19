@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>共享 · LinkList</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>共享书签</h1>
+      <form id="search-form" class="row">
+        <input id="q" placeholder="关键词" style="flex:1;min-width:180px">
+        <input id="tag" placeholder="标签" style="width:140px">
+        <button class="btn" type="submit">筛选</button>
+      </form>
+      <div id="list"></div>
+      <div id="pager"></div>
+    </div>
+  </div>
+  <script type="module" src="/assets/shared.js"></script>
+</body>
+</html>

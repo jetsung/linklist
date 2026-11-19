@@ -1,0 +1,9 @@
+/target
+/data
+node_modules
+frontend/dist
+.env
+*.log
+linkding
+frontend/astro/.astro/
+site/

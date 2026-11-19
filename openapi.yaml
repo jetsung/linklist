@@ -1,0 +1,3286 @@
+openapi: 3.0.3
+info:
+  title: LinkList API
+  description: |
+    LinkList REST API：用 Rust 重写的自托管书签管理服务（单二进制，支持
+    SQLite / PostgreSQL / MySQL）。
+
+    - 基础路径 `/api/v1`；feed、health、manifest 等端点位于根路径。
+    - 认证方式：会话 Cookie（Web 界面登录后自动携带）或 API Token
+      （`Authorization: Token <token>`，也可用 `Bearer <token>`）。
+    - 统一错误结构：`{"error": {"code": "...", "message": "..."}}`；
+      `code` 稳定可编程处理，取值 `bad_request` / `unauthorized` / `forbidden` /
+      `not_found` / `conflict` / `too_many_requests` / `internal_error`，
+      对应 400 / 401 / 403 / 404 / 409 / 429 / 500。
+  version: 0.1.0
+servers:
+  - url: /
+    description: 当前部署实例（相对路径）
+tags:
+  - name: auth
+    description: 认证、会话与 API Token
+  - name: bookmarks
+    description: 书签 CRUD、检查、导入导出
+  - name: tags
+    description: 标签管理
+  - name: bulk
+    description: 书签批量操作
+  - name: capture
+    description: 页面抓取（元数据/快照/存档查询）
+  - name: assets
+    description: 书签资产上传与下载
+  - name: bundles
+    description: Bundle（保存的过滤器）
+  - name: profile
+    description: 用户偏好与自动打标规则
+  - name: shared
+    description: 共享书签视图
+  - name: admin
+    description: 管理端（用户/数据/任务/设置/审计）
+  - name: feed
+    description: RSS 订阅源
+  - name: system
+    description: 系统端点（版本/健康检查/manifest/OpenSearch）
+security:
+  - cookieAuth: []
+  - tokenAuth: []
+paths:
+  /api/v1/auth/status:
+    get:
+      tags: [auth]
+      summary: 认证状态
+      description: 匿名可访问。返回当前认证状态与站点能力开关（登录页判定用）。
+      operationId: getAuthStatus
+      security: []
+      responses:
+        '200':
+          description: 认证状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatus'
+  /api/v1/auth/setup:
+    post:
+      tags: [auth]
+      summary: 初始化首个管理员
+      description: 仅当库中无用户时可用（已有用户返回 409）；成功后写入会话自动登录。服务端配置 `admin_password` 时优先于请求中的口令。
+      operationId: setupAuth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: 口令登录
+      description: 成功写入会话 Cookie。纯 SSO 部署（`disable_login_form`）返回 403；登录限速触发返回 429。
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: 退出登录
+      description: 使当前会话失效；匿名调用也返回 200。
+      operationId: logout
+      responses:
+        '200':
+          description: 已退出
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前用户信息
+      operationId: getMe
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      summary: 修改口令
+      description: 需认证；新口令至少 8 位，旧口令校验失败返回 400。
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/tokens:
+    get:
+      tags: [auth]
+      summary: API Token 列表
+      operationId: listTokens
+      responses:
+        '200':
+          description: Token 列表（不含明文）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TokenInfo'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [auth]
+      summary: 创建 API Token
+      description: 明文 token 仅在本次响应中返回一次；有效期由 token_ttl_days 配置控制（0=永久）。
+      operationId: createToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTokenRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedToken'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/tokens/{id}:
+    delete:
+      tags: [auth]
+      summary: 吊销 API Token
+      description: 仅能吊销本人 Token；非本人/已吊销/不存在返回 404。
+      operationId: revokeToken
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 已吊销
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '404':
+          $ref: '#/components/responses/Error'
+  /oidc/login:
+    get:
+      tags: [auth]
+      summary: OIDC 登录入口
+      description: 重定向到 IdP 授权页（授权码流程 + PKCE S256）。未启用 OIDC 返回 404。
+      operationId: oidcLogin
+      security: []
+      responses:
+        '303':
+          description: 重定向到 IdP 授权 URL
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /oidc/callback:
+    get:
+      tags: [auth]
+      summary: OIDC 回调
+      description: IdP 认证后回跳；校验通过自动建号（首次）并写会话，重定向回首页。
+      operationId: oidcCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+          description: 授权码
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: 防 CSRF 状态值
+        - name: error
+          in: query
+          schema:
+            type: string
+          description: IdP 侧错误码
+      responses:
+        '303':
+          description: 校验通过，重定向回首页
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks:
+    get:
+      tags: [bookmarks]
+      summary: 书签列表
+      description: 支持表达式搜索、标签/状态筛选与分页。count 为本页结果数，total 为匹配总数。
+      operationId: listBookmarks
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [unread, archived, all]
+          description: 状态筛选（默认未读优先的活跃书签）
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: 标签筛选（AND 语义）
+        - name: tags_any
+          in: query
+          schema:
+            type: string
+          description: 逗号分隔的 OR 标签（如 tags_any=rust,web）
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: 搜索表达式（tag:rust、is:unread、AND/OR/NOT 等）
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [added_asc, added_desc, modified_asc, modified_desc, title_asc, title_desc]
+          description: 排序（兼容旧值 created/updated/title）
+        - name: shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+          description: 共享状态筛选
+        - name: unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+          description: 未读状态筛选
+        - name: bundle
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 应用保存的 Bundle 过滤器（可被显式参数覆盖）
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: 页码（默认 1）
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+          description: 每页条数（默认取偏好 items_per_page 或 30，上限 200）
+        - name: modified_since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: 仅返回 updated_at 晚于该 RFC3339 时间的书签
+        - name: added_since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: 仅返回 created_at 晚于该 RFC3339 时间的书签
+      responses:
+        '200':
+          description: 书签分页列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookmarkWithTags'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [bookmarks]
+      summary: 创建书签
+      description: 创建后自动入队元数据/快照/存档查询/预览图任务；同用户规范化 URL 重复返回 409。
+      operationId: createBookmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewBookmark'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkWithTags'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/check:
+    get:
+      tags: [bookmarks]
+      summary: URL 检查
+      description: 返回同 URL 已存在书签、页面元数据抓取结果与自动打标预览（添加书签前防重复）。
+      operationId: checkUrl
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: ignore_cache
+          in: query
+          schema:
+            type: string
+          description: '"true" 时跳过元数据 LRU 缓存'
+      responses:
+        '200':
+          description: 检查结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}:
+    get:
+      tags: [bookmarks]
+      summary: 书签详情
+      operationId: getBookmark
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 书签对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkWithTags'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [bookmarks]
+      summary: 更新书签
+      description: 字段可选，未提供的字段不修改；URL 变更会作废旧预览图并入队 preview/archive_lookup 任务。
+      operationId: updateBookmark
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBookmark'
+      responses:
+        '200':
+          description: 更新后的书签
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkWithTags'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [bookmarks]
+      summary: 删除书签
+      operationId: deleteBookmark
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/tags:
+    put:
+      tags: [bookmarks]
+      summary: 整体替换书签标签
+      operationId: setBookmarkTags
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTagsRequest'
+      responses:
+        '200':
+          description: 替换后的标签列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetTagsResponse'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/archive:
+    post:
+      tags: [bookmarks]
+      summary: 归档书签
+      operationId: archiveBookmark
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 归档后的书签对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/unarchive:
+    post:
+      tags: [bookmarks]
+      summary: 取消归档
+      operationId: unarchiveBookmark
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 书签对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/import:
+    post:
+      tags: [bookmarks]
+      summary: 导入 Netscape 书签
+      description: 请求体为原始 Netscape HTML 文本（非 multipart）；逐条解析入库，重复 URL 计入 duplicates。
+      operationId: importBookmarks
+      parameters:
+        - name: map_private_flag
+          in: query
+          schema:
+            type: string
+            enum: ["true", "on"]
+          description: 启用 PRIVATE="0" → 共享 映射
+      requestBody:
+        required: true
+        content:
+          text/html:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: 导入统计
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportStats'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/export:
+    get:
+      tags: [bookmarks]
+      summary: 导出 Netscape 书签
+      description: '返回 Netscape HTML 文件（Content-Disposition: attachment）。'
+      operationId: exportBookmarks
+      responses:
+        '200':
+          description: Netscape HTML 文件
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/tags:
+    get:
+      tags: [tags]
+      summary: 标签列表（含使用计数）
+      description: 复用书签列表查询参数（q/filter/tag/tags_any/bundle 等），带搜索条件时返回过滤结果书签使用的标签。排序：英文在前，中文按拼音。
+      operationId: listTags
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [unread, archived, all]
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: tags_any
+          in: query
+          schema:
+            type: string
+        - name: bundle
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+        - name: modified_since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: added_since
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: 标签列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TagWithCount'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [tags]
+      summary: 创建标签（幂等）
+      description: 大小写不敏感；已存在时返回已有标签。
+      operationId: createTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: 标签对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/tags/merge:
+    post:
+      tags: [tags]
+      summary: 合并标签
+      description: 把 sources 中的标签合并进 target；target 不得包含于 sources（大小写不敏感）。
+      operationId: mergeTags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target, sources]
+              properties:
+                target:
+                  type: string
+                sources:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: 合并成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/tags/complete:
+    get:
+      tags: [tags]
+      summary: 标签自动补全
+      operationId: completeTags
+      parameters:
+        - name: prefix
+          in: query
+          schema:
+            type: string
+          description: 前缀（默认空串）
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        '200':
+          description: 按使用次数排序的标签列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TagWithCount'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/tags/{name}:
+    get:
+      tags: [tags]
+      summary: 标签详情
+      description: 大小写不敏感匹配。
+      operationId: getTag
+      parameters:
+        - $ref: '#/components/parameters/TagName'
+      responses:
+        '200':
+          description: 标签对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [tags]
+      summary: 重命名标签
+      operationId: renameTag
+      parameters:
+        - $ref: '#/components/parameters/TagName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: 新标签名
+      responses:
+        '200':
+          description: 重命名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [tags]
+      summary: 删除标签
+      operationId: deleteTag
+      parameters:
+        - $ref: '#/components/parameters/TagName'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/tags/add:
+    post:
+      tags: [bulk]
+      summary: 批量加标签
+      operationId: bulkAddTags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTagsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/tags/remove:
+    post:
+      tags: [bulk]
+      summary: 批量移除标签
+      operationId: bulkRemoveTags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTagsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/mark-read:
+    post:
+      tags: [bulk]
+      summary: 批量标记已读
+      operationId: bulkMarkRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/mark-unread:
+    post:
+      tags: [bulk]
+      summary: 批量标记未读
+      operationId: bulkMarkUnread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/archive:
+    post:
+      tags: [bulk]
+      summary: 批量归档
+      operationId: bulkArchive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/unarchive:
+    post:
+      tags: [bulk]
+      summary: 批量取消归档
+      operationId: bulkUnarchive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/share:
+    post:
+      tags: [bulk]
+      summary: 批量设为共享
+      operationId: bulkShare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/unshare:
+    post:
+      tags: [bulk]
+      summary: 批量取消共享
+      operationId: bulkUnshare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/refresh:
+    post:
+      tags: [bulk]
+      summary: 批量刷新元数据
+      operationId: bulkRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/snapshot:
+    post:
+      tags: [bulk]
+      summary: 批量创建 HTML 快照
+      description: 逐个入队 snapshot 任务；需启用 enable_snapshots 且后台任务未禁用，否则 400。
+      operationId: bulkSnapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/bulk/delete:
+    post:
+      tags: [bulk]
+      summary: 批量删除
+      operationId: bulkDelete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 逐项结果汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/capture:
+    post:
+      tags: [capture]
+      summary: 触发页面抓取任务
+      description: kind 缺省为 metadata；取值 metadata（抓标题/描述）、snapshot（HTML 快照，需 enable_snapshots）、archive_lookup（Internet Archive 查询）。后台任务被禁用或快照未启用时返回 400。
+      operationId: triggerCapture
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '202':
+          description: 任务已入队
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureTriggered'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/capture-tasks:
+    get:
+      tags: [capture]
+      summary: 书签抓取任务列表
+      operationId: listCaptureTasks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 任务列表（仅本人书签；无任务返回空数组）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CaptureTask'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/capture-tasks/{task_id}/retry:
+    post:
+      tags: [capture]
+      summary: 重试失败的抓取任务
+      description: 仅 status=failed 的任务可重试（否则 400）；重试后状态置回 pending、attempts 归零。
+      operationId: retryCaptureTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 已重置待重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetryResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/snapshot:
+    get:
+      tags: [capture]
+      summary: 获取 HTML 快照
+      description: '流式返回 singlefile 快照（Content-Disposition: inline + CSP sandbox）；无快照 404。'
+      operationId: getSnapshot
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 快照 HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/singlefile:
+    post:
+      tags: [capture]
+      summary: 上传浏览器端 singlefile 快照
+      description: |
+        请求体为 single-file 生成的完整 HTML 原始字节（非 multipart），最大 50 MiB；
+        支持 gzip（Content-Encoding: gzip 或 1f 8b 魔数自动解压）；
+        需启用资产上传（disable_asset_upload 关闭时 403）。
+      operationId: uploadSinglefile
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          text/html:
+            schema:
+              type: string
+              format: binary
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SinglefileUploadResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/assets:
+    post:
+      tags: [assets]
+      summary: 上传资产
+      description: |
+        multipart 表单，文件字段名为 file。类型白名单：image/png、image/jpeg、
+        image/gif、image/webp、image/svg+xml、application/pdf、application/zip、
+        text/plain、text/html；单文件上限 10 MiB。需启用资产上传（否则 403）。
+      operationId: uploadAsset
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetUploaded'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [assets]
+      summary: 资产列表
+      operationId: listAssets
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: 资产列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Asset'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/assets/{aid}:
+    get:
+      tags: [assets]
+      summary: 下载资产
+      description: '以原始 Content-Type 流式返回（Content-Disposition: inline）。'
+      operationId: downloadAsset
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: 资产文件流
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [assets]
+      summary: 删除资产
+      operationId: deleteAsset
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '204':
+          description: 删除成功
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bookmarks/{id}/assets/{aid}/read:
+    get:
+      tags: [assets]
+      summary: 在线阅读 HTML 资产
+      description: 返回阅读器包装页（CSP sandbox）；非 text/html 资产返回 400。
+      operationId: readAsset
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: HTML 阅读页
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles:
+    get:
+      tags: [bundles]
+      summary: Bundle 列表
+      description: 按 sort_order、created_at 排序。
+      operationId: listBundles
+      responses:
+        '200':
+          description: Bundle 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bundle'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [bundles]
+      summary: 创建 Bundle
+      operationId: createBundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewBundle'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles/reorder:
+    post:
+      tags: [bundles]
+      summary: 调整 Bundle 排序
+      description: 按 ids 数组顺序设置 sort_order。
+      operationId: reorderBundles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: 排序成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles/preview:
+    get:
+      tags: [bundles]
+      summary: Bundle 过滤器预览
+      description: 以表单字段经 GET 参数实时构造过滤器，返回匹配书签分页（含 tags），供新建/编辑 Bundle 时预览。
+      operationId: previewBundle
+      parameters:
+        - $ref: '#/components/parameters/PreviewPage'
+        - $ref: '#/components/parameters/PreviewPerPage'
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: 搜索词（所有词都必须命中）
+        - name: any_tags
+          in: query
+          schema:
+            type: string
+          description: 任一命中标签（逗号分隔，可带 # 前缀）
+        - name: all_tags
+          in: query
+          schema:
+            type: string
+          description: 全部命中标签
+        - name: excluded_tags
+          in: query
+          schema:
+            type: string
+          description: 排除标签
+        - name: filter_unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no, off]
+          description: 未读筛选（off/缺省 = 全部）
+        - name: filter_shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no, off]
+          description: 共享筛选（off/缺省 = 全部）
+      responses:
+        '200':
+          description: 预览分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkPreviewList'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles/preview/tags:
+    get:
+      tags: [bundles]
+      summary: Bundle 过滤器预览的标签计数
+      description: 查询参数同 /bundles/preview，返回匹配书签使用的标签。
+      operationId: previewBundleTags
+      parameters:
+        - $ref: '#/components/parameters/PreviewPage'
+        - $ref: '#/components/parameters/PreviewPerPage'
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: any_tags
+          in: query
+          schema:
+            type: string
+        - name: all_tags
+          in: query
+          schema:
+            type: string
+        - name: excluded_tags
+          in: query
+          schema:
+            type: string
+        - name: filter_unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no, off]
+        - name: filter_shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no, off]
+      responses:
+        '200':
+          description: 标签计数列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TagWithCount'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles/{id}:
+    get:
+      tags: [bundles]
+      summary: Bundle 详情
+      operationId: getBundle
+      parameters:
+        - $ref: '#/components/parameters/BundleId'
+      responses:
+        '200':
+          description: Bundle 对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [bundles]
+      summary: 更新 Bundle
+      description: 可选 name 与 search（或旧键 search_json）；未提供的字段不变。
+      operationId: updateBundle
+      parameters:
+        - $ref: '#/components/parameters/BundleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBundle'
+      responses:
+        '200':
+          description: 更新后的 Bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [bundles]
+      summary: 删除 Bundle
+      operationId: deleteBundle
+      parameters:
+        - $ref: '#/components/parameters/BundleId'
+      responses:
+        '204':
+          description: 删除成功
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/bundles/{id}/bookmarks:
+    get:
+      tags: [bundles]
+      summary: Bundle 匹配的书签
+      description: 应用 bundle 保存的过滤器到书签查询，返回分页结果。
+      operationId: bundleBookmarks
+      parameters:
+        - $ref: '#/components/parameters/BundleId'
+      responses:
+        '200':
+          description: 匹配书签
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bookmark'
+        '404':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: id
+      description: 登录会话 Cookie（tower-sessions 默认名 id）
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API Token，格式 `Token lk_...` 或 `Bearer lk_...`
+  parameters:
+    BookmarkId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: 书签 ID
+    AssetId:
+      name: aid
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: 资产 ID
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: 用户 ID
+    TagName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: 标签名（大小写不敏感）
+    BundleId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: Bundle ID
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+      description: 页码（默认 1）
+    PerPageParam:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+      description: 每页条数（默认取偏好或 30，上限 200）
+    PreviewPage:
+      name: page
+      in: query
+      schema:
+        type: integer
+      description: 页码（默认 1）
+    PreviewPerPage:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+      description: 每页条数（默认 30，clamp 1-200）
+  responses:
+    Error:
+      description: 统一错误响应（code 与状态码对应关系见 Error schema）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, too_many_requests, internal_error]
+            message:
+              type: string
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        date_joined:
+          type: string
+          description: RFC3339（仅 /auth/me 返回）
+    AuthStatus:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        username:
+          type: string
+          nullable: true
+        needs_setup:
+          type: boolean
+        enable_oidc:
+          type: boolean
+        enable_auth_proxy:
+          type: boolean
+        disable_login_form:
+          type: boolean
+    SetupRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          description: 至少 8 位
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          description: 至少 8 位
+    TokenInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        created_at:
+          type: string
+        last_used_at:
+          type: string
+          nullable: true
+        revoked_at:
+          type: string
+          nullable: true
+    CreateTokenRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Token 名称（可选）
+    CreatedToken:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        token:
+          type: string
+          description: 明文 token（lk_ 前缀），仅创建时返回一次
+    Bookmark:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        notes:
+          type: string
+        is_unread:
+          type: boolean
+        is_archived:
+          type: boolean
+        is_shared:
+          type: boolean
+        archive_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          description: RFC3339
+        updated_at:
+          type: string
+          description: RFC3339
+    BookmarkWithTags:
+      allOf:
+        - $ref: '#/components/schemas/Bookmark'
+        - type: object
+          properties:
+            has_snapshot:
+              type: boolean
+              description: 列表响应携带；单书签响应不含
+            has_preview_image:
+              type: boolean
+            tags:
+              type: array
+              items:
+                type: string
+    BookmarkList:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: 本页结果数
+        total:
+          type: integer
+          description: 匹配总数
+        page:
+          type: integer
+        per_page:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookmarkWithTags'
+    BookmarkPreviewList:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookmarkWithTags'
+    NewBookmark:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        title:
+          type: string
+          nullable: true
+          description: 空串/省略时回退 URL
+        description:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        is_unread:
+          type: boolean
+        is_shared:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+    UpdateBookmark:
+      type: object
+      description: 字段可选，未提供不修改。
+      properties:
+        url:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        is_unread:
+          type: boolean
+          nullable: true
+        is_archived:
+          type: boolean
+          nullable: true
+        is_shared:
+          type: boolean
+          nullable: true
+    SetTagsRequest:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+    SetTagsResponse:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+    CheckResponse:
+      type: object
+      properties:
+        bookmark:
+          allOf:
+            - $ref: '#/components/schemas/BookmarkWithTags'
+          nullable: true
+          description: 同 URL 已存在的书签（无则 null）
+        metadata:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            favicon_url:
+              type: string
+              nullable: true
+            preview_image_url:
+              type: string
+              nullable: true
+        auto_tags:
+          type: array
+          items:
+            type: string
+          description: 自动打标预览
+    Tag:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    TagWithCount:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        usage_count:
+          type: integer
+    BulkIdsRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+    BulkTagsRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        tags:
+          type: array
+          items:
+            type: string
+    ItemResult:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        ok:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+          description: 失败原因（仅失败项携带）
+    BulkResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemResult'
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+    ImportStats:
+      type: object
+      properties:
+        imported:
+          type: integer
+        duplicates:
+          type: integer
+        failed:
+          type: integer
+    CaptureRequest:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [metadata, snapshot, archive_lookup]
+          default: metadata
+          description: 任务类型；snapshot 需启用 enable_snapshots
+    CaptureTriggered:
+      type: object
+      properties:
+        task_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+    CaptureTask:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, success, failed]
+        attempts:
+          type: integer
+        last_error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          description: RFC3339
+    RetryResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        task_id:
+          type: integer
+          format: int64
+    SinglefileUploadResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        bookmark_id:
+          type: integer
+          format: int64
+        size:
+          type: integer
+          description: 解压后字节数
+        gzip:
+          type: boolean
+          description: 请求体是否为 gzip 传输
+    AssetUploaded:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        bookmark_id:
+          type: integer
+          format: int64
+        file_name:
+          type: string
+        file_size:
+          type: integer
+        content_type:
+          type: string
+    Asset:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        asset_type:
+          type: string
+          enum: [upload, snapshot]
+        file_size:
+          type: integer
+        content_type:
+          type: string
+        display_name:
+          type: string
+        date_created:
+          type: string
+          description: RFC3339
+    Bundle:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        search_json:
+          type: string
+          description: 过滤条件负载（BundleSearch 的 JSON 字符串）
+        created_at:
+          type: string
+          description: RFC3339
+        sort_order:
+          type: integer
+    BundleSearch:
+      type: object
+      description: 保存的过滤条件（可应用到书签查询）。
+      properties:
+        filter:
+          type: string
+          nullable: true
+        unread:
+          type: boolean
+          nullable: true
+        tags_and:
+          type: array
+          items:
+            type: string
+        tags_or:
+          type: array
+          items:
+            type: string
+        tags_not:
+          type: array
+          items:
+            type: string
+        shared:
+          type: boolean
+          nullable: true
+        q:
+          type: string
+          nullable: true
+    NewBundle:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        search:
+          $ref: '#/components/schemas/BundleSearch'
+    UpdateBundle:
+      type: object
+      description: 可选 name 与 search（或旧键 search_json，BundleSearch 的 JSON 字符串）；未提供的字段不变。
+      properties:
+        name:
+          type: string
+        search:
+          $ref: '#/components/schemas/BundleSearch'
+        search_json:
+          type: string
+    AutoTagRule:
+      type: object
+      required: [field, pattern, tags]
+      properties:
+        name:
+          type: string
+          description: 规则名（可选，空时省略）
+        field:
+          type: string
+          enum: [url, title, any]
+        match_type:
+          type: string
+          default: contains
+        pattern:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    DisplayPreferences:
+      type: object
+      description: 部分更新的显示偏好（全部字段可选，未提供不修改）。
+      properties:
+        theme: {type: string, description: auto/light/dark}
+        items_per_page: {type: integer}
+        tag_grouping: {type: string, description: alphabetical/disabled}
+        enable_favicons: {type: boolean}
+        enable_preview_images: {type: boolean}
+        enable_automatic_snapshots: {type: boolean}
+        enable_sharing: {type: boolean}
+        enable_public_sharing: {type: boolean}
+        custom_css: {type: string}
+        bookmark_date_display: {type: string, description: relative/absolute/hidden}
+        bookmark_description_display: {type: string, description: inline/separate}
+        bookmark_description_max_lines: {type: integer}
+        display_url: {type: boolean}
+        permanent_notes: {type: boolean}
+        display_view_bookmark_action: {type: boolean}
+        display_edit_bookmark_action: {type: boolean}
+        display_archive_bookmark_action: {type: boolean}
+        display_remove_bookmark_action: {type: boolean}
+        bookmark_link_target: {type: string, description: _blank/_self}
+        sticky_pagination: {type: boolean}
+        collapse_side_panel: {type: boolean}
+        hide_bundles: {type: boolean}
+        tag_search: {type: string, description: strict/lax}
+        legacy_search: {type: boolean}
+        web_archive_integration: {type: string, description: disabled/enabled}
+        default_mark_unread: {type: boolean}
+        default_mark_shared: {type: boolean}
+    Profile:
+      type: object
+      description: 完整显示偏好（27 键；无记录时返回默认值）。
+      properties:
+        theme: {type: string, description: auto/light/dark}
+        items_per_page: {type: integer}
+        tag_grouping: {type: string, description: alphabetical/disabled}
+        enable_favicons: {type: boolean}
+        enable_preview_images: {type: boolean}
+        enable_automatic_snapshots: {type: boolean}
+        enable_sharing: {type: boolean}
+        enable_public_sharing: {type: boolean}
+        custom_css: {type: string}
+        bookmark_date_display: {type: string, description: relative/absolute/hidden}
+        bookmark_description_display: {type: string, description: inline/separate}
+        bookmark_description_max_lines: {type: integer}
+        display_url: {type: boolean}
+        permanent_notes: {type: boolean}
+        display_view_bookmark_action: {type: boolean}
+        display_edit_bookmark_action: {type: boolean}
+        display_archive_bookmark_action: {type: boolean}
+        display_remove_bookmark_action: {type: boolean}
+        bookmark_link_target: {type: string, description: _blank/_self}
+        sticky_pagination: {type: boolean}
+        collapse_side_panel: {type: boolean}
+        hide_bundles: {type: boolean}
+        tag_search: {type: string, description: strict/lax}
+        legacy_search: {type: boolean}
+        web_archive_integration: {type: string, description: disabled/enabled}
+        default_mark_unread: {type: boolean}
+        default_mark_shared: {type: boolean}
+    SearchPreferences:
+      type: object
+      properties:
+        sort:
+          type: string
+          enum: [added_asc, added_desc, modified_asc, modified_desc, title_asc, title_desc]
+        shared:
+          type: string
+          enum: [off, yes, no]
+        unread:
+          type: string
+          enum: [off, yes, no]
+    FeedKey:
+      type: object
+      properties:
+        key:
+          type: string
+    GlobalSettings:
+      type: object
+      properties:
+        landing_page:
+          type: string
+          enum: [login, shared_bookmarks]
+        enable_link_prefetch:
+          type: boolean
+    SharedBookmark:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+          description: 共享者用户 ID
+        username:
+          type: string
+          description: 共享者用户名
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        notes:
+          type: string
+        is_unread:
+          type: boolean
+        is_shared:
+          type: boolean
+        is_archived:
+          type: boolean
+        is_editable:
+          type: boolean
+          description: 查看者是否为本人（匿名恒为 false）
+        has_snapshot:
+          type: boolean
+        archive_url:
+          type: string
+          nullable: true
+        has_preview_image:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          description: RFC3339
+    SharedBookmarkList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedBookmark'
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+    NameCountList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+    ViewerProfile:
+      type: object
+      properties:
+        anonymous:
+          type: boolean
+        theme:
+          type: string
+        items_per_page:
+          type: integer
+        custom_css:
+          type: string
+        enable_favicons:
+          type: boolean
+        enable_preview_images:
+          type: boolean
+        bookmark_date_display:
+          type: string
+        bookmark_description_display:
+          type: string
+        display_url:
+          type: boolean
+        search_preferences:
+          type: object
+          additionalProperties: true
+    AdminUserList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                format: int64
+              username:
+                type: string
+              is_admin:
+                type: boolean
+              is_active:
+                type: boolean
+              date_joined:
+                type: string
+    CreateUserRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          description: 至少 8 位
+        is_admin:
+          type: boolean
+    UserIdentity:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        is_admin:
+          type: boolean
+    AdminBookmarkList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                format: int64
+              user_id:
+                type: integer
+                format: int64
+              url:
+                type: string
+              title:
+                type: string
+              is_archived:
+                type: boolean
+              is_shared:
+                type: boolean
+              created_at:
+                type: string
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+    AdminTask:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        bookmark_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [metadata, snapshot, archive_lookup, preview]
+        status:
+          type: string
+          enum: [pending, running, success, failed]
+        attempts:
+          type: integer
+        last_error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+        bookmark_url:
+          type: string
+          nullable: true
+        bookmark_title:
+          type: string
+          nullable: true
+    AdminTaskList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminTask'
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+    AdminSettings:
+      type: object
+      description: 键值对扁平对象；白名单键 guest_sharing / max_upload_mb / landing_page / guest_profile_user / enable_link_prefetch。
+      additionalProperties:
+        type: string
+    AuditLogList:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                format: int64
+              user_id:
+                type: integer
+                format: int64
+                nullable: true
+              username:
+                type: string
+                nullable: true
+              action:
+                type: string
+              target:
+                type: string
+              created_at:
+                type: string
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+    DeletedCount:
+      type: object
+      properties:
+        deleted:
+          type: integer
+    HealthStatus:
+      type: object
+      properties:
+        version:
+          type: string
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+  /api/v1/profile:
+    get:
+      tags: [profile]
+      summary: 获取显示偏好
+      description: 返回完整偏好对象（无记录时返回默认值）。
+      operationId: getProfile
+      responses:
+        '200':
+          description: 显示偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [profile]
+      summary: 部分更新显示偏好
+      description: 全部字段可选（partial 更新）；枚举/范围校验失败返回 400。响应为更新后的完整偏好对象。
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayPreferences'
+      responses:
+        '200':
+          description: 更新后的显示偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/profile/search-preferences:
+    get:
+      tags: [profile]
+      summary: 获取搜索偏好
+      description: 默认值为 sort=added_desc、shared=off、unread=off。
+      operationId: getSearchPreferences
+      responses:
+        '200':
+          description: 搜索偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPreferences'
+        '401':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [profile]
+      summary: 更新搜索偏好
+      description: sort 取书签列表排序枚举；shared/unread 取 off/yes/no。
+      operationId: updateSearchPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchPreferences'
+      responses:
+        '200':
+          description: 合并保存后的搜索偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPreferences'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/profile/auto-tagging-rules:
+    get:
+      tags: [profile]
+      summary: 获取自动打标规则
+      description: 返回规则数组；无规则返回 []。
+      operationId: getAutoTaggingRules
+      responses:
+        '200':
+          description: 规则数组
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AutoTagRule'
+        '401':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [profile]
+      summary: 整体替换自动打标规则
+      operationId: setAutoTaggingRules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/AutoTagRule'
+      responses:
+        '200':
+          description: 替换成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  count:
+                    type: integer
+                    description: 保存后的规则数量
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/profile/feed-key:
+    post:
+      tags: [profile]
+      summary: 获取或创建 RSS feed key
+      description: 无请求体；已有 key 时幂等返回。
+      operationId: getFeedKey
+      responses:
+        '200':
+          description: feed key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedKey'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/profile/feed-key/regenerate:
+    post:
+      tags: [profile]
+      summary: 重新生成 RSS feed key
+      description: 无请求体；旧 key 立即失效。
+      operationId: regenerateFeedKey
+      responses:
+        '200':
+          description: 新 feed key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedKey'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/profile/refresh-favicons:
+    post:
+      tags: [profile]
+      summary: 触发全量 favicon 刷新
+      description: 无请求体。
+      operationId: refreshFavicons
+      responses:
+        '200':
+          description: 已触发
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/global-settings:
+    get:
+      tags: [profile]
+      summary: 公开全局设置
+      description: 匿名可访问，返回对访客可见的全局设置。
+      operationId: getGlobalSettings
+      security: []
+      responses:
+        '200':
+          description: 全局设置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalSettings'
+  /api/v1/shared:
+    get:
+      tags: [shared]
+      summary: 共享书签列表（登录用户）
+      description: 支持搜索表达式与标签/共享者筛选；sort 取值同书签列表（兼容旧值 created/updated/title）。
+      operationId: listShared
+      parameters:
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: user
+          in: query
+          schema:
+            type: string
+          description: 按共享者用户名筛选
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [added_asc, added_desc, modified_asc, modified_desc, title_asc, title_desc]
+      responses:
+        '200':
+          description: 共享书签分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedBookmarkList'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/shared/tags:
+    get:
+      tags: [shared]
+      summary: 共享书签的标签计数
+      description: 仅 q/user 参数生效。
+      operationId: listSharedTags
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: user
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 标签计数列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameCountList'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/shared/users:
+    get:
+      tags: [shared]
+      summary: 共享者列表
+      description: 无查询参数。
+      operationId: listSharedUsers
+      responses:
+        '200':
+          description: 共享者与各自书签数
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        username:
+                          type: string
+                        count:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/shared/public:
+    get:
+      tags: [shared]
+      summary: 公开共享书签（匿名）
+      description: 匿名可访问；仅当共享书签的用户启用了 enable_public_sharing。对象结构同 /shared（is_editable 恒为 false）。
+      operationId: listPublicShared
+      security: []
+      parameters:
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: user
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [added_asc, added_desc, modified_asc, modified_desc, title_asc, title_desc]
+      responses:
+        '200':
+          description: 公开共享书签分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedBookmarkList'
+  /api/v1/shared/public/tags:
+    get:
+      tags: [shared]
+      summary: 公开共享书签的标签计数
+      description: 匿名可访问；仅 q 参数生效。
+      operationId: listPublicSharedTags
+      security: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 标签计数列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameCountList'
+  /api/v1/shared/viewer-profile:
+    get:
+      tags: [shared]
+      summary: 访客生效资料
+      description: 返回当前查看者（登录用户或匿名访客）生效的显示资料与搜索偏好。
+      operationId: getViewerProfile
+      responses:
+        '200':
+          description: 生效资料
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViewerProfile'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/users:
+    get:
+      tags: [admin]
+      summary: 用户列表
+      description: 需管理员。
+      operationId: listAdminUsers
+      responses:
+        '200':
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '403':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [admin]
+      summary: 创建用户
+      description: 用户名去空格后非空；口令至少 8 位；用户名冲突返回 409。
+      operationId: createAdminUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserIdentity'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/users/{id}/deactivate:
+    post:
+      tags: [admin]
+      summary: 停用用户
+      description: 不能停用自己；停用后该用户会话与 API Token 立即失效。
+      operationId: deactivateAdminUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 停用成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/users/{id}/activate:
+    post:
+      tags: [admin]
+      summary: 启用用户
+      operationId: activateAdminUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 启用成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/users/{id}/reset-password:
+    post:
+      tags: [admin]
+      summary: 管理员重置口令
+      description: 口令至少 8 位。
+      operationId: resetAdminUserPassword
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        '200':
+          description: 重置成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/data/bookmarks:
+    get:
+      tags: [admin]
+      summary: 全站书签数据
+      description: 跨用户的书签精简列表。
+      operationId: listAdminBookmarks
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+          description: 默认 50，clamp 1-200
+      responses:
+        '200':
+          description: 分页结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBookmarkList'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/tasks:
+    get:
+      tags: [admin]
+      summary: 抓取任务列表
+      operationId: listAdminTasks
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [metadata, snapshot, archive_lookup, preview]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, success, failed]
+      responses:
+        '200':
+          description: 任务分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTaskList'
+        '403':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [admin]
+      summary: 清理任务记录
+      description: 仅 kind/status 参数生效筛选。
+      operationId: clearAdminTasks
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [metadata, snapshot, archive_lookup, preview]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, success, failed]
+      responses:
+        '200':
+          description: 删除条数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedCount'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/settings:
+    get:
+      tags: [admin]
+      summary: 全局设置
+      description: 返回键值对扁平对象（含默认值）。
+      operationId: getAdminSettings
+      responses:
+        '200':
+          description: 设置键值对
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSettings'
+        '403':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [admin]
+      summary: 更新全局设置
+      description: |
+        请求体为键值对对象（值均为字符串）。白名单键：
+        guest_sharing（true/false/1/0）、max_upload_mb（1-1024）、
+        landing_page（login/shared_bookmarks）、guest_profile_user（空串或用户 ID）、
+        enable_link_prefetch（true/false）。非法键或值返回 400。响应为更新后设置。
+      operationId: updateAdminSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSettings'
+      responses:
+        '200':
+          description: 更新后的设置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSettings'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/audit-logs:
+    get:
+      tags: [admin]
+      summary: 审计日志
+      operationId: listAuditLogs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+        - name: action
+          in: query
+          schema:
+            type: string
+          description: 按动作过滤（如 password_changed / token_revoked）
+        - name: username
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 日志分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogList'
+        '403':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [admin]
+      summary: 清理审计日志
+      description: 同查询参数生效筛选。
+      operationId: clearAuditLogs
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: username
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 删除条数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedCount'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/version:
+    get:
+      tags: [system]
+      summary: 应用版本
+      operationId: getVersion
+      security: []
+      responses:
+        '200':
+          description: 版本号
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+  /health:
+    get:
+      tags: [system]
+      summary: 健康检查
+      description: 匿名可访问；数据库 ping 失败返回 500 与 status=unhealthy。
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: 服务健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '500':
+          description: 数据库不可达
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /feed/{kind}:
+    get:
+      tags: [feed]
+      summary: RSS 订阅源
+      description: |
+        kind 取值：all / unread / shared / public_shared。public_shared 无需 key
+        （受 guest_sharing 控制）；其余 kind 需有效的 feed key（/profile/feed-key
+        获取），否则 404。响应为 RSS 2.0 XML。
+      operationId: getFeed
+      security: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [all, unread, shared, public_shared]
+        - name: key
+          in: query
+          schema:
+            type: string
+          description: feed key（all/unread/shared 必需）
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 条数上限（默认 100，空串 = 全部，clamp 0-10000）
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: 搜索表达式
+        - name: user
+          in: query
+          schema:
+            type: string
+          description: 按共享者用户名筛选（shared/public_shared）
+        - name: unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+        - name: shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+        - name: bundle
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 本人 Bundle ID
+      responses:
+        '200':
+          description: RSS 2.0 XML
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+  /feeds/shared:
+    get:
+      tags: [feed]
+      summary: 公开共享 RSS（匿名）
+      description: 等价 /feed/public_shared；受 guest_sharing 控制。
+      operationId: getPublicSharedFeed
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: user
+          in: query
+          schema:
+            type: string
+        - name: unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+        - name: shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+      responses:
+        '200':
+          description: RSS 2.0 XML
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+  /feeds/{key}/{kind}:
+    get:
+      tags: [feed]
+      summary: RSS 订阅源（key 在路径中）
+      description: key 为有效 feed key；kind 取值同 /feed/{kind}。
+      operationId: getFeedByKey
+      security: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [all, unread, shared, public_shared]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: user
+          in: query
+          schema:
+            type: string
+        - name: unread
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+        - name: shared
+          in: query
+          schema:
+            type: string
+            enum: [yes, no]
+      responses:
+        '200':
+          description: RSS 2.0 XML
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+  /opensearch.xml:
+    get:
+      tags: [system]
+      summary: OpenSearch 描述文档
+      description: 匿名可访问；搜索模板 {base}/bookmarks?client=opensearch&q={searchTerms}。
+      operationId: getOpensearch
+      security: []
+      responses:
+        '200':
+          description: OpenSearch XML
+          content:
+            application/opensearchdescription+xml:
+              schema:
+                type: string
+  /manifest.json:
+    get:
+      tags: [system]
+      summary: PWA manifest
+      description: 匿名可访问；背景色随当前用户主题（dark → #161822，否则 #ffffff）。
+      operationId: getManifest
+      security: []
+      responses:
+        '200':
+          description: Web App Manifest
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  short_name:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  start_url:
+                    type: string
+                  display:
+                    type: string
+                  scope:
+                    type: string
+                  theme_color:
+                    type: string
+                  background_color:
+                    type: string
+                  icons:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  shortcuts:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+  /custom_css:
+    get:
+      tags: [system]
+      summary: 自定义 CSS
+      description: 返回当前生效资料的 custom_css 文本。
+      operationId: getCustomCss
+      responses:
+        '200':
+          description: CSS 文本
+          content:
+            text/css:
+              schema:
+                type: string

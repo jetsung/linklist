@@ -1,0 +1,3 @@
+# Clippy 配置：本项目为应用程序，不对外导出 API，
+# 关闭"避免破坏导出 API"的 lint 约束，允许更激进的自动修复。
+avoid-breaking-exported-api = false

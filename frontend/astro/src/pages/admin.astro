@@ -1,0 +1,338 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="管理">
+  <main class="settings-page" aria-labelledby="main-heading">
+    <div class="section-header">
+      <h1 id="main-heading">管理</h1>
+      <div class="header-controls">
+        <form id="new-user-form" class="d-flex gap-2">
+          <input id="nu-username" class="form-input" placeholder="用户名" style="max-width:160px" />
+          <input id="nu-password" class="form-input" type="password" placeholder="初始密码" style="max-width:160px" />
+          <button class="btn btn-primary" type="submit">创建用户</button>
+        </form>
+      </div>
+    </div>
+
+    <section aria-labelledby="users-heading">
+      <h2 id="users-heading">用户</h2>
+      <table class="table">
+        <thead><tr><th>ID</th><th>用户名</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="tasks-heading">
+      <div class="section-header">
+        <h2 id="tasks-heading">捕获任务</h2>
+        <div class="header-controls">
+          <form id="task-filter-form" class="d-flex gap-2">
+            <select id="task-kind" class="form-select">
+              <option value="">全部类型</option>
+              <option value="metadata">元数据</option>
+              <option value="snapshot">快照</option>
+              <option value="archive_lookup">存档查询</option>
+              <option value="preview">预览图</option>
+            </select>
+            <select id="task-status" class="form-select">
+              <option value="">全部状态</option>
+              <option value="pending">待处理</option>
+              <option value="running">运行中</option>
+              <option value="success">成功</option>
+              <option value="failed">失败</option>
+            </select>
+            <button class="btn" type="submit">筛选</button>
+            <button class="btn btn-error" id="clear-tasks" type="button">清空</button>
+          </form>
+        </div>
+      </div>
+      <table class="table">
+        <thead><tr><th style="width:6%">ID</th><th style="width:20%">书签</th><th>类型</th><th>状态</th><th>错误</th></tr></thead>
+        <tbody id="task-rows"></tbody>
+      </table>
+      <div class="d-flex justify-between align-center mt-2">
+        <span class="text-secondary text-small" id="task-total"></span>
+        <div class="pagination" id="task-pagination"></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="audit-heading">
+      <div class="section-header">
+        <h2 id="audit-heading">审计日志</h2>
+        <div class="header-controls">
+          <form id="audit-filter-form" class="d-flex gap-2">
+            <select id="audit-action" class="form-select">
+              <option value="">全部动作</option>
+            </select>
+            <select id="audit-user" class="form-select">
+              <option value="">全部用户</option>
+            </select>
+            <button class="btn" type="submit">筛选</button>
+            <button class="btn btn-error" id="clear-audit" type="button">清空</button>
+          </form>
+        </div>
+      </div>
+      <table class="table">
+        <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>目标</th></tr></thead>
+        <tbody id="audit-rows"></tbody>
+      </table>
+      <div class="d-flex justify-between align-center mt-2">
+        <span class="text-secondary text-small" id="audit-total"></span>
+        <div class="pagination" id="audit-pagination"></div>
+      </div>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  import { get, post, del } from '../scripts/api';
+  import { toastSuccess, toastError } from '../scripts/toast';
+  import { confirmDialog } from '../scripts/confirm';
+  const say = (t: string) => toastSuccess(t, { blocking: true });
+  const sayErr = (t: string) => toastError(t, { blocking: true });
+
+  async function loadUsers() {
+    const rows = document.getElementById('user-rows') as HTMLElement;
+    rows.replaceChildren();
+    try {
+      const d = await get('/api/v1/admin/users');
+      for (const u of d.users || d.results || []) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${u.id}</td><td>${u.username}</td><td>${u.is_active ? '启用' : '停用'}</td>`;
+        const td = document.createElement('td');
+        const mk = (label: string, path: string) => {
+          const b = document.createElement('button'); b.className = 'btn btn-sm'; b.textContent = label;
+          b.addEventListener('click', async () => {
+            try { await post(path); toastSuccess(`${label}成功`); loadUsers(); }
+            catch (e: any) { sayErr(e.message); }
+          });
+          return b;
+        };
+        td.append(
+          mk(u.is_active ? '停用' : '启用', `/api/v1/admin/users/${u.id}/${u.is_active ? 'deactivate' : 'activate'}`),
+        );
+        tr.append(td); rows.append(tr);
+      }
+    } catch (e: any) { toastError(e.message); }
+  }
+
+  const TASK_PAGE_SIZE = 20;
+  let taskPage = 1;
+  const taskKindLabels: Record<string, string> = {
+    metadata: '元数据',
+    snapshot: '快照',
+    archive_lookup: '存档查询',
+    preview: '预览图',
+  };
+  const taskStatusLabels: Record<string, string> = {
+    pending: '待处理',
+    running: '运行中',
+    success: '成功',
+    failed: '失败',
+  };
+
+  function taskQuery(): string {
+    const params = new URLSearchParams();
+    const kind = (document.getElementById('task-kind') as HTMLSelectElement).value;
+    const status = (document.getElementById('task-status') as HTMLSelectElement).value;
+    if (kind) params.set('kind', kind);
+    if (status) params.set('status', status);
+    return params.toString();
+  }
+
+  async function loadTasks() {
+    const rows = document.getElementById('task-rows') as HTMLElement;
+    rows.replaceChildren();
+    const qs = taskQuery();
+    try {
+      const d = await get(`/api/v1/admin/tasks?page=${taskPage}&per_page=${TASK_PAGE_SIZE}${qs ? '&' + qs : ''}`);
+      for (const t of d.tasks || d.results || []) {
+        const tr = document.createElement('tr');
+        const tdId = document.createElement('td');
+        tdId.textContent = String(t.id);
+        const tdBm = document.createElement('td');
+        tdBm.className = 'text-break';
+        if (t.bookmark_url) {
+          const a = document.createElement('a');
+          a.href = `/bookmarks?q=${encodeURIComponent(t.bookmark_url)}`;
+          a.textContent = t.bookmark_title || t.bookmark_url;
+          a.target = '_blank';
+          tdBm.append(a);
+        } else {
+          tdBm.textContent = String(t.bookmark_id ?? '');
+        }
+        const tdKind = document.createElement('td');
+        tdKind.textContent = taskKindLabels[t.kind || t.task_type] || t.kind || t.task_type || '';
+        const tdStatus = document.createElement('td');
+        tdStatus.textContent = taskStatusLabels[t.status] || t.status || '';
+        const tdErr = document.createElement('td');
+        tdErr.className = 'text-break';
+        tdErr.textContent = t.last_error || '';
+        tr.append(tdId, tdBm, tdKind, tdStatus, tdErr);
+        rows.append(tr);
+      }
+      renderPager('task-pagination', 'task-total', d.total || 0, d.page || taskPage, TASK_PAGE_SIZE, (p) => { taskPage = p; loadTasks(); });
+    } catch {}
+  }
+
+  function renderPager(
+    pagerId: string,
+    infoId: string,
+    total: number,
+    page: number,
+    pageSize: number,
+    go: (p: number) => void,
+  ) {
+    const box = document.getElementById(pagerId) as HTMLElement;
+    const info = document.getElementById(infoId) as HTMLElement;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    info.textContent = `共 ${total} 条，第 ${page} / ${pages} 页`;
+    box.replaceChildren();
+    const mk = (cls: string, label: string, target?: number) => {
+      const li = document.createElement('li');
+      li.className = cls;
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = label;
+      if (target === undefined) {
+        li.classList.add('disabled');
+      } else {
+        a.addEventListener('click', (e) => { e.preventDefault(); go(target!); });
+      }
+      li.append(a); box.append(li);
+    };
+    mk('page-item', '‹', page > 1 ? page - 1 : undefined);
+    const s = Math.max(1, page - 2), e = Math.min(pages, page + 2);
+    if (s > 1) mk('page-item', '1', 1);
+    if (s > 2) mk('page-item disabled', '…');
+    for (let p = s; p <= e; p++) mk(p === page ? 'page-item active' : 'page-item', String(p), p);
+    if (e < pages - 1) mk('page-item disabled', '…');
+    if (e < pages) mk('page-item', String(pages), pages);
+    mk('page-item', '›', page < pages ? page + 1 : undefined);
+  }
+
+  const AUDIT_PAGE_SIZE = 20;
+  let auditPage = 1;
+
+  const auditActionLabels: Record<string, string> = {
+    login: '登录',
+    login_failed: '登录失败',
+    logout: '退出登录',
+    password_changed: '修改密码',
+    token_created: '创建 Token',
+    token_revoked: '吊销 Token',
+    setup: '初始化',
+    user_deactivated: '停用用户',
+    user_activated: '启用用户',
+    password_reset_by_admin: '管理员重置密码',
+    settings_changed: '修改设置',
+  };
+
+  function auditQuery(): string {
+    const params = new URLSearchParams();
+    const action = (document.getElementById('audit-action') as HTMLSelectElement).value;
+    const user = (document.getElementById('audit-user') as HTMLSelectElement).value;
+    if (action) params.set('action', action);
+    if (user) params.set('username', user);
+    return params.toString();
+  }
+
+  function fmtTime(v: string): string {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? v : d.toLocaleString('zh-CN', { hour12: false });
+  }
+
+  async function loadAudit() {
+    const rows = document.getElementById('audit-rows') as HTMLElement;
+    rows.replaceChildren();
+    const qs = auditQuery();
+    try {
+      const d = await get(`/api/v1/admin/audit-logs?page=${auditPage}&per_page=${AUDIT_PAGE_SIZE}${qs ? '&' + qs : ''}`);
+      const logs = d.logs || d.results || [];
+      for (const a of logs) {
+        const tr = document.createElement('tr');
+        const action = auditActionLabels[a.action] || a.action;
+        tr.innerHTML = `<td>${fmtTime(a.created_at)}</td><td>${a.username || a.user_id || '-'}</td><td>${action}</td><td class="text-break">${a.target || '-'}</td>`;
+        rows.append(tr);
+      }
+      renderAuditPager(d.total || logs.length, d.page || auditPage);
+    } catch {}
+  }
+
+  function renderAuditPager(total: number, page: number) {
+    renderPager('audit-pagination', 'audit-total', total, page, AUDIT_PAGE_SIZE, (p) => { auditPage = p; loadAudit(); });
+  }
+
+  async function initAuditFilters() {
+    const actionSel = document.getElementById('audit-action') as HTMLSelectElement;
+    const userSel = document.getElementById('audit-user') as HTMLSelectElement;
+    const known = new Set<string>([...actionSel.options].map((o) => o.value));
+    const users = new Map<string, string>();
+    try {
+      const d = await get('/api/v1/admin/audit-logs?page=1&per_page=200');
+      for (const a of d.logs || d.results || []) {
+        known.add(a.action);
+        if (a.username && !users.has(a.username)) users.set(a.username, a.username);
+      }
+    } catch {}
+    for (const key of [...known].sort()) {
+      if (!key) continue;
+      const o = document.createElement('option');
+      o.value = key; o.textContent = auditActionLabels[key] || key;
+      actionSel.append(o);
+    }
+    for (const name of [...users.keys()].sort()) {
+      const o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      userSel.append(o);
+    }
+    (document.getElementById('audit-filter-form') as HTMLFormElement).addEventListener('submit', (e) => {
+      e.preventDefault();
+      auditPage = 1; loadAudit();
+    });
+  }
+  document.getElementById('new-user-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await post('/api/v1/admin/users', {
+        username: (document.getElementById('nu-username') as HTMLInputElement).value,
+        password: (document.getElementById('nu-password') as HTMLInputElement).value,
+      });
+      say('用户已创建'); loadUsers();
+    } catch (e: any) { sayErr(e.message); }
+  });
+
+  document.getElementById('task-filter-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    taskPage = 1; loadTasks();
+  });
+
+  // 清空当前筛选条件命中的捕获任务记录。
+  document.getElementById('clear-tasks')?.addEventListener('click', async () => {
+    const qs = taskQuery();
+    const scope = qs ? '当前筛选的捕获任务' : '全部捕获任务';
+    if (!(await confirmDialog(`确定要清空${scope}记录吗？此操作不可恢复。`))) return;
+    try {
+      const d = await del(`/api/v1/admin/tasks${qs ? '?' + qs : ''}`);
+      say(`已清空 ${d.deleted ?? 0} 条捕获任务`);
+      taskPage = 1; loadTasks();
+    } catch (e: any) { sayErr(e.message); }
+  });
+
+  // 清空当前筛选条件命中的审计日志。
+  document.getElementById('clear-audit')?.addEventListener('click', async () => {
+    const qs = auditQuery();
+    const scope = qs ? '当前筛选的审计日志' : '全部审计日志';
+    if (!(await confirmDialog(`确定要清空${scope}吗？此操作不可恢复。`))) return;
+    try {
+      const d = await del(`/api/v1/admin/audit-logs${qs ? '?' + qs : ''}`);
+      say(`已清空 ${d.deleted ?? 0} 条审计日志`);
+      auditPage = 1; loadAudit();
+    } catch (e: any) { sayErr(e.message); }
+  });
+
+  (async () => {
+    try { await Promise.all([loadUsers(), loadTasks(), initAuditFilters().then(loadAudit)]); }
+    catch (e: any) { if (e.status === 401 || e.status === 403) window.location.href = '/login'; }
+  })();
+</script>

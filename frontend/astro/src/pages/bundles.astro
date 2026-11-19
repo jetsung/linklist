@@ -1,0 +1,221 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="组合">
+  <main class="crud-page bundles-page" aria-labelledby="main-heading">
+    <div class="crud-header">
+      <h1 id="main-heading">组合</h1>
+      <button id="add-bundle" class="btn">新建组合</button>
+    </div>
+    <div id="bundles-empty" class="empty" style="display:none">
+      <p class="empty-title h5">还没有组合</p>
+      <p class="empty-subtitle">创建第一个组合来保存常用的书签过滤器</p>
+    </div>
+    <table class="table crud-table" id="bundles-table" style="display:none">
+      <thead>
+        <tr><th>名称</th><th class="actions"><span class="text-assistive">操作</span></th></tr>
+      </thead>
+      <tbody id="bundle-rows"></tbody>
+    </table>
+  </main>
+
+  <div id="bundle-modal" class="modal">
+    <div class="modal-overlay" data-close-modal></div>
+    <div class="modal-container modal-lg" role="dialog" aria-modal="true">
+      <div class="modal-header d-flex justify-between align-center">
+        <h2 class="modal-title" id="bundle-modal-title">新建组合</h2>
+        <button class="btn btn-clear" data-close-modal aria-label="关闭">
+          <svg width="20" height="20"><use href="/icons.svg#close"></use></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="bundle-form" autocomplete="off" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="bundle-name">名称</label>
+            <input id="bundle-name" class="form-input" maxlength="256" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-q">搜索词</label>
+            <input id="bundle-q" class="form-input" maxlength="256" aria-describedby="bundle-q-help" />
+            <div id="bundle-q-help" class="form-input-hint">所有搜索词都必须出现在书签中才算匹配。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-any-tags">标签</label>
+            <input id="bundle-any-tags" class="form-input" aria-describedby="bundle-any-tags-help" />
+            <div id="bundle-any-tags-help" class="form-input-hint">命中其中任意一个标签即匹配。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-all-tags">必选标签</label>
+            <input id="bundle-all-tags" class="form-input" aria-describedby="bundle-all-tags-help" />
+            <div id="bundle-all-tags-help" class="form-input-hint">所有这些标签都必须存在才匹配。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-excluded-tags">排除标签</label>
+            <input id="bundle-excluded-tags" class="form-input" aria-describedby="bundle-excluded-tags-help" />
+            <div id="bundle-excluded-tags-help" class="form-input-hint">命中其中任意一个标签即不匹配。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-filter-unread">阅读状态</label>
+            <select id="bundle-filter-unread" class="form-select" aria-describedby="bundle-filter-unread-help">
+              <option value="off" selected>全部</option>
+              <option value="yes">未读</option>
+              <option value="no">已读</option>
+            </select>
+            <div id="bundle-filter-unread-help" class="form-input-hint">限定匹配未读或已读书签。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bundle-filter-shared">共享状态</label>
+            <select id="bundle-filter-shared" class="form-select" aria-describedby="bundle-filter-shared-help">
+              <option value="off" selected>全部</option>
+              <option value="yes">已共享</option>
+              <option value="no">未共享</option>
+            </select>
+            <div id="bundle-filter-shared-help" class="form-input-hint">限定匹配已共享或未共享书签。</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <div class="actions d-flex justify-between">
+          <button class="btn btn-wide" data-close-modal type="button">取消</button>
+          <button class="btn btn-primary btn-wide" id="bundle-save" type="button">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  import { get, post, patch, del } from '../scripts/api';
+  import { toastSuccess, toastError } from '../scripts/toast';
+  import { confirmDialog } from '../scripts/confirm';
+
+  interface Bundle { id: number; name: string; }
+
+  const modal = document.getElementById('bundle-modal') as HTMLDivElement;
+  let editingId: number | null = null;
+
+  // 模态仅用于新建；编辑走 /bundles/{id}/edit 独立页面。
+  function openModal() {
+    editingId = null;
+    (document.getElementById('bundle-modal-title') as HTMLElement).textContent = '新建组合';
+    (document.getElementById('bundle-name') as HTMLInputElement).value = '';
+    (document.getElementById('bundle-q') as HTMLInputElement).value = '';
+    (document.getElementById('bundle-any-tags') as HTMLInputElement).value = '';
+    (document.getElementById('bundle-all-tags') as HTMLInputElement).value = '';
+    (document.getElementById('bundle-excluded-tags') as HTMLInputElement).value = '';
+    (document.getElementById('bundle-filter-unread') as HTMLSelectElement).value = 'off';
+    (document.getElementById('bundle-filter-shared') as HTMLSelectElement).value = 'off';
+    modal.classList.add('active');
+  }
+
+  function closeModal() { modal.classList.remove('active'); }
+  modal.querySelectorAll('[data-close-modal]').forEach((el) => el.addEventListener('click', closeModal));
+
+  function parseTags(v: string): string[] {
+    return v.split(/[,，\s]+/).map((s) => s.trim().replace(/^#/, '')).filter(Boolean);
+  }
+
+  async function save() {
+    const name = (document.getElementById('bundle-name') as HTMLInputElement).value.trim();
+    if (!name) { toastError('名称不能为空', { blocking: true }); return; }
+    const unread = (document.getElementById('bundle-filter-unread') as HTMLSelectElement).value;
+    const shared = (document.getElementById('bundle-filter-shared') as HTMLSelectElement).value;
+    const search = {
+      q: (document.getElementById('bundle-q') as HTMLInputElement).value.trim() || undefined,
+      tags_or: parseTags((document.getElementById('bundle-any-tags') as HTMLInputElement).value),
+      tags_and: parseTags((document.getElementById('bundle-all-tags') as HTMLInputElement).value),
+      tags_not: parseTags((document.getElementById('bundle-excluded-tags') as HTMLInputElement).value),
+      filter: unread === 'yes' ? 'unread' : unread === 'no' ? 'read' : undefined,
+      shared: shared === 'yes' ? true : shared === 'no' ? false : undefined,
+    };
+    try {
+      if (editingId) await patch(`/api/v1/bundles/${editingId}`, { name, search });
+      else await post('/api/v1/bundles', { name, search });
+      toastSuccess(editingId ? '组合已更新' : '组合已创建', { blocking: true });
+      closeModal();
+      await load();
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '保存失败', { blocking: true });
+    }
+  }
+  document.getElementById('bundle-save')?.addEventListener('click', save);
+
+  async function load() {
+    const rows = document.getElementById('bundle-rows') as HTMLTableSectionElement;
+    const data = await get('/api/v1/bundles');
+    const items = (data.results || []) as Bundle[];
+    rows.textContent = '';
+    const table = document.getElementById('bundles-table') as HTMLTableElement;
+    const empty = document.getElementById('bundles-empty') as HTMLDivElement;
+    table.style.display = items.length ? '' : 'none';
+    empty.style.display = items.length ? 'none' : '';
+    for (const b of items) {
+      const tr = document.createElement('tr');
+      tr.draggable = true;
+      tr.dataset.bundleId = String(b.id);
+      const tdName = document.createElement('td');
+      const wrap = document.createElement('div'); wrap.className = 'd-flex align-center';
+      const drag = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      drag.setAttribute('width', '20'); drag.setAttribute('height', '20');
+      drag.setAttribute('class', 'drag-handle text-secondary mr-1');
+      drag.innerHTML = '<use href="/icons.svg#drag"></use>';
+      const span = document.createElement('span'); span.textContent = b.name;
+      wrap.append(drag, span); tdName.append(wrap);
+      const tdActions = document.createElement('td'); tdActions.className = 'actions';
+      // 对齐 linkding：编辑走独立页面（模态保留给新建）。
+      const edit = document.createElement('a'); edit.className = 'btn btn-link'; edit.textContent = '编辑';
+      edit.href = `/bundles/${b.id}/edit`;
+      const remove = document.createElement('button'); remove.className = 'btn btn-link'; remove.textContent = '删除';
+      remove.addEventListener('click', async () => {
+        if (!(await confirmDialog(`删除组合「${b.name}」？`))) return;
+        try { await del(`/api/v1/bundles/${b.id}`); toastSuccess('组合已删除', { blocking: true }); await load(); }
+        catch { toastError('删除失败', { blocking: true }); }
+      });
+      tdActions.append(edit, remove);
+      tr.append(tdName, tdActions);
+      rows.append(tr);
+    }
+    initDrag(rows, load);
+  }
+
+  // 对齐 linkding bundles/index.html 的拖拽排序：drag-start/dragging 类 + dataTransfer move + 拖入即换位 + 拖完提交新顺序。
+  function initDrag(tbody: HTMLTableSectionElement, reload: () => Promise<void>) {
+    let dragged: HTMLTableRowElement | null = null;
+    tbody.querySelectorAll('tr').forEach((tr) => {
+      const row = tr as HTMLTableRowElement;
+      row.addEventListener('dragstart', (e) => {
+        dragged = row;
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.dropEffect = 'move';
+        }
+        row.classList.add('drag-start');
+        setTimeout(() => { row.classList.remove('drag-start'); row.classList.add('dragging'); }, 0);
+      });
+      row.addEventListener('dragend', async () => {
+        row.classList.remove('dragging');
+        if (!dragged) return;
+        const ids = Array.from(tbody.querySelectorAll('tr')).map((r) => Number((r as HTMLTableRowElement).dataset.bundleId));
+        dragged = null;
+        try { await post('/api/v1/bundles/reorder', { ids }); await reload(); }
+        catch { toastError('排序失败', { blocking: true }); }
+      });
+      row.addEventListener('dragover', (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; });
+      row.addEventListener('dragenter', () => {
+        if (!dragged || dragged === row) return;
+        const list = Array.from(tbody.children);
+        if (list.indexOf(dragged) < list.indexOf(row)) row.insertAdjacentElement('afterend', dragged);
+        else row.insertAdjacentElement('beforebegin', dragged);
+      });
+    });
+  }
+
+  document.getElementById('add-bundle')?.addEventListener('click', () => openModal());
+
+  (async () => {
+    try { await load(); }
+    catch (e: unknown) {
+      if (e instanceof Error && 'status' in e && (e as { status?: number }).status === 401) window.location.href = '/login';
+    }
+  })();
+</script>

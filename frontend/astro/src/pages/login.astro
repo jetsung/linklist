@@ -1,0 +1,57 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="登录" publicHeader>
+  <main class="auth-page" aria-labelledby="main-heading">
+    <div class="section-header"><h1 id="main-heading">登录</h1></div>
+    <form id="login-form">
+      <div class="form-group">
+        <label class="form-label" for="username">用户名</label>
+        <input id="username" name="username" class="form-input" autocomplete="username" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">密码</label>
+        <input id="password" name="password" class="form-input" type="password" autocomplete="current-password" required />
+      </div>
+      <input type="submit" value="登录" class="btn btn-primary width-100 mt-4" />
+    </form>
+    <div id="login-disabled" class="mt-4" hidden>
+      <p class="form-label">密码登录已禁用（纯 SSO 部署），请使用下方 SSO 登录。</p>
+      <a id="oidc-login" class="btn btn-primary width-100 mt-2" href="/oidc/login" hidden>OIDC 登录</a>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  import { post, get } from '../scripts/api';
+  import { toastError } from '../scripts/toast';
+
+  // 已登录则直接跳转。
+  try { const s = await get('/api/v1/auth/status'); if (s?.authenticated) window.location.href = '/bookmarks'; } catch {}
+
+  // 对齐上游 LD_DISABLE_LOGIN_FORM / enable_oidc：按运行时开关隐藏密码表单、展示 SSO 入口。
+  try {
+    const s = await get('/api/v1/auth/status');
+    const disabled = s?.disable_login_form === true;
+    const form = document.getElementById('login-form') as HTMLFormElement | null;
+    const disabledBox = document.getElementById('login-disabled');
+    if (disabled && form && disabledBox) {
+      form.hidden = true;
+      disabledBox.hidden = false;
+      if (s?.enable_oidc) (document.getElementById('oidc-login') as HTMLAnchorElement).hidden = false;
+    }
+  } catch {}
+
+  document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await post('/api/v1/auth/login', {
+        username: (document.getElementById('username') as HTMLInputElement).value,
+        password: (document.getElementById('password') as HTMLInputElement).value,
+      });
+      window.location.href = '/bookmarks';
+    } catch {
+      toastError('用户名或密码不正确，请重试。', { blocking: true });
+    }
+  });
+</script>

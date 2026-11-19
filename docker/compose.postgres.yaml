@@ -1,0 +1,41 @@
+# linklist 的 PostgreSQL 形态（官方 postgres 镜像）——叠加在基础编排之上使用：
+#
+#   docker compose -f docker/compose.yaml -f docker/compose.postgres.yaml up -d
+#
+# 凭据从 docker/.env（compose 项目目录）或当前 shell 环境读取，下面给出默认值；
+# 生产部署务必在 docker/.env 中覆盖：
+#   POSTGRES_USER=linklist
+#   POSTGRES_PASSWORD=change-me
+#   POSTGRES_DB=linklist
+# 中国网络环境拉取镜像遵循仓库 docker mtrans 约定（docker mtrans spull postgres:17）。
+#
+# linklist 容器仅在 postgres 健康后启动（depends_on: service_healthy），
+# 数据落 postgres_data 卷；/app/data 挂载保留（快照/资产等文件仍写 data 目录）。
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: linklist-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-linklist}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-linklist}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-linklist} -d ${POSTGRES_DB:-linklist}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # 覆盖 linklist 服务：连接串指向 postgres，并等待其健康。
+  linklist:
+    environment:
+      LINKLIST_DATABASE_URL: "postgres://${POSTGRES_USER:-linklist}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-linklist}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · LinkList</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card auth-card">
+      <h1>LinkList 登录</h1>
+      <form id="login-form">
+        <label for="username">用户名</label>
+        <input id="username" name="username" autocomplete="username" required>
+        <label for="password">口令</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <div id="msg" class="error-text"></div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" type="submit">登录</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script type="module" src="/assets/login.js"></script>
+</body>
+</html>

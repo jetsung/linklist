@@ -1,0 +1,4 @@
+/* 拓宽正文列：zensical 默认 .md-grid 限 61rem，表格/代码在配置参考等页面偏挤。 */
+.md-grid {
+  max-width: 76rem;
+}

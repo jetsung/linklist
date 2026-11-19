@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <circle cx="256" cy="256" r="256" fill="#5046e5"/>
+  <g transform="translate(256, 256) scale(0.68) translate(-256, -256)">
+    <!-- 链环 (Link 元素) -->
+    <g fill="none" stroke="#ffffff" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 230 180 L 305 105 C 335 75 385 75 415 105 C 445 135 445 185 415 215 L 340 290"/>
+      <path d="M 180 332 L 332 180"/>
+      <path d="M 172 238 L 97 313 C 67 343 67 393 97 423 C 127 453 177 453 207 423 L 265 365"/>
+    </g>
+    <!-- 列表标记 (List 元素) -->
+    <g fill="#ffffff">
+      <circle cx="295" cy="290" r="10"/>
+      <rect x="325" y="280" width="95" height="20" rx="10"/>
+      <circle cx="295" cy="336" r="10"/>
+      <rect x="325" y="326" width="95" height="20" rx="10"/>
+      <circle cx="295" cy="382" r="10"/>
+      <rect x="325" y="372" width="75" height="20" rx="10"/>
+    </g>
+  </g>
+</svg>

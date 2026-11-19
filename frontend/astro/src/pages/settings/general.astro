@@ -1,0 +1,545 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="设置">
+  <main class="settings-page" aria-labelledby="main-heading">
+    <h1 id="main-heading">设置</h1>
+
+    <section aria-labelledby="profile-heading">
+      <h2 id="profile-heading">个人资料</h2>
+      <p><a href="#" id="change-password-link">修改密码</a></p>
+      <form id="prefs-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="theme">主题</label>
+          <select id="theme" class="form-select width-25 width-sm-100">
+            <option value="auto">自动（跟随系统）</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+          <div class="form-input-hint">使用浅色、深色主题，或根据系统设置自动调整。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark_date_display">书签日期格式</label>
+          <select id="bookmark_date_display" class="form-select width-25 width-sm-100">
+            <option value="relative">相对时间</option>
+            <option value="absolute">绝对日期</option>
+            <option value="hidden">隐藏</option>
+          </select>
+          <div class="form-input-hint">以相对时间（多久以前）、绝对日期显示书签日期，或隐藏日期。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark_description_display">书签描述显示</label>
+          <select id="bookmark_description_display" class="form-select width-25 width-sm-100">
+            <option value="inline">同行显示</option>
+            <option value="separate">分块显示</option>
+          </select>
+          <div class="form-input-hint">描述和标签与标题同行显示，还是作为单独区块显示。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark_description_max_lines">描述最大行数</label>
+          <input id="bookmark_description_max_lines" type="number" min="0" max="50" value="5" class="form-input width-25 width-sm-100" required />
+          <div class="form-input-hint">限制书签描述显示的行数。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="display_url" type="checkbox" />
+            <i class="form-icon"></i>
+            显示书签 URL
+          </label>
+          <div class="form-input-hint">启用后在标题下方显示书签 URL。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="permanent_notes" type="checkbox" />
+            <i class="form-icon"></i>
+            永久显示备注
+          </label>
+          <div class="form-input-hint">永久显示书签备注，无需逐条展开。也可用快捷键 <code>e</code> 临时显示全部备注。</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">书签操作</span>
+          <label class="form-checkbox"><input id="display_view_bookmark_action" type="checkbox" /><i class="form-icon"></i>查看</label>
+          <label class="form-checkbox"><input id="display_edit_bookmark_action" type="checkbox" /><i class="form-icon"></i>编辑</label>
+          <label class="form-checkbox"><input id="display_archive_bookmark_action" type="checkbox" /><i class="form-icon"></i>归档</label>
+          <label class="form-checkbox"><input id="display_remove_bookmark_action" type="checkbox" /><i class="form-icon"></i>删除</label>
+          <div class="form-input-hint">每个书签显示哪些操作按钮。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bookmark_link_target">书签打开方式</label>
+          <select id="bookmark_link_target" class="form-select width-25 width-sm-100">
+            <option value="_blank">新页面</option>
+            <option value="_self">当前页面</option>
+          </select>
+          <div class="form-input-hint">点击书签时在新页面还是当前页面打开。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="items_per_page">每页条数</label>
+          <input id="items_per_page" type="number" min="10" max="200" class="form-input width-25 width-sm-100" required />
+          <div class="form-input-hint">书签列表每页显示的数量。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="sticky_pagination" type="checkbox" />
+            <i class="form-icon"></i>
+            固定分页栏
+          </label>
+          <div class="form-input-hint">启用后分页控件固定在屏幕底部，无需滚动到页面末尾即可翻页。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="collapse_side_panel" type="checkbox" />
+            <i class="form-icon"></i>
+            折叠侧边栏
+          </label>
+          <div class="form-input-hint">默认折叠标签侧边栏，为书签列表腾出空间；标签改为以可展开抽屉显示。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="hide_bundles" type="checkbox" />
+            <i class="form-icon"></i>
+            隐藏组合
+          </label>
+          <div class="form-input-hint">如果不打算使用组合，可以在侧边栏中隐藏它们。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tag_search">标签搜索</label>
+          <select id="tag_search" class="form-select width-25 width-sm-100">
+            <option value="strict">严格模式</option>
+            <option value="lax">宽松模式</option>
+          </select>
+          <div class="form-input-hint">
+            严格模式下标签必须以 # 开头；宽松模式下不带 # 也能搜索标签。注意不带 # 的词与普通搜索词无法区分，搜索结果可能包含正文匹配。
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="legacy_search" type="checkbox" />
+            <i class="form-icon"></i>
+            启用旧版搜索
+          </label>
+          <div class="form-input-hint">新版搜索支持逻辑表达式（and、or、not）。如果新版搜索出现问题，可临时切换回旧版搜索。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tag_grouping">标签分组</label>
+          <select id="tag_grouping" class="form-select width-25 width-sm-100">
+            <option value="alphabetical">按字母分组</option>
+            <option value="disabled">不分组</option>
+          </select>
+          <div class="form-input-hint">按字母模式下标签会按首字母分组；不分组则按原顺序显示。</div>
+        </div>
+        <div class="form-group">
+          <details id="auto-tag-details">
+            <summary><span class="form-label d-inline-block">自动打标</span></summary>
+            <textarea id="auto-tag-rules" class="form-input monospace" rows="6"
+              placeholder="youtube.com video&#10;reddit.com/r/Music music reddit"></textarea>
+          </details>
+          <div class="form-input-hint">
+            根据预定义规则自动为书签添加标签，每行一条：URL 表达式 + 标签，例如：
+            <pre>youtube.com video
+reddit.com/r/Music music reddit</pre>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_favicons" type="checkbox" />
+            <i class="form-icon"></i>
+            启用网站图标
+          </label>
+          <div class="form-input-hint">自动加载书签网站的 favicon 并显示在书签旁；启用后会自动下载缺失的图标。</div>
+          <button class="btn mt-2" id="refresh-favicons" type="button">刷新网站图标</button>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_preview_images" type="checkbox" />
+            <i class="form-icon"></i>
+            启用预览图片
+          </label>
+          <div class="form-input-hint">自动加载书签网站的预览图片并显示在书签旁；启用后会自动下载缺失的图片。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="web_archive_integration">Internet Archive 集成</label>
+          <select id="web_archive_integration" class="form-select width-25 width-sm-100">
+            <option value="disabled">禁用</option>
+            <option value="enabled">启用</option>
+          </select>
+          <div class="form-input-hint">启用后会自动在 <a href="https://web.archive.org/" target="_blank" rel="noopener">Internet Archive Wayback Machine</a> 为书签创建快照，即使网站下线或内容变更也能回溯收藏时的页面。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_automatic_snapshots" type="checkbox" />
+            <i class="form-icon"></i>
+            自动创建快照
+          </label>
+          <div class="form-input-hint">保存书签时自动创建网页快照。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_sharing" type="checkbox" />
+            <i class="form-icon"></i>
+            启用书签共享
+          </label>
+          <div class="form-input-hint">允许与其他用户共享书签并查看共享书签；禁用后会向其他用户隐藏之前共享的书签。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_public_sharing" type="checkbox" />
+            <i class="form-icon"></i>
+            启用公开共享
+          </label>
+          <div class="form-input-hint">共享书签无需登录即可访问（需拥有实例链接），通过<a href="/shared" target="_blank">共享书签页</a>查看。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="default_mark_unread" type="checkbox" />
+            <i class="form-icon"></i>
+            新书签默认标记为未读
+          </label>
+          <div class="form-input-hint">设置新建书签时「标记为未读」选项的默认状态；创建单个书签时仍可覆盖。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="default_mark_shared" type="checkbox" />
+            <i class="form-icon"></i>
+            新书签默认共享
+          </label>
+          <div class="form-input-hint">设置新建书签时「共享」选项的默认状态；创建单个书签时仍可覆盖。</div>
+        </div>
+        <div class="form-group">
+          <details id="custom-css-details">
+            <summary><span class="form-label d-inline-block">自定义 CSS</span></summary>
+            <textarea id="custom_css" class="form-input monospace" rows="6"></textarea>
+          </details>
+          <div class="form-input-hint">为页面添加自定义 CSS。</div>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-primary btn-wide mt-2" type="submit">保存</button>
+        </div>
+      </form>
+    </section>
+
+    <section aria-labelledby="global-settings-heading" id="global-settings-section" style="display:none">
+      <h2 id="global-settings-heading">全局设置</h2>
+      <form id="global-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="landing_page">落地页</label>
+          <select id="landing_page" class="form-select width-25 width-sm-100">
+            <option value="login">登录页</option>
+            <option value="shared_bookmarks">共享书签页</option>
+          </select>
+          <div class="form-input-hint">未登录用户访问根 URL 时跳转到的页面。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="guest_profile_user">访客用户资料</label>
+          <select id="guest_profile_user" class="form-select width-25 width-sm-100">
+            <option value="">标准资料</option>
+          </select>
+          <div class="form-input-hint">未登录用户使用的用户资料（影响公开共享书签的主题、列表设置等）。可以使用自己的资料，或创建一个专用用户；默认使用固定设置的标准资料。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input id="enable_link_prefetch" type="checkbox" />
+            <i class="form-icon"></i>
+            启用链接悬停预取
+          </label>
+          <div class="form-input-hint">悬停时预取应用内链接，可提升导航体验，但会增加服务器负载与流量消耗。</div>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-primary btn-wide mt-2" type="submit">保存</button>
+        </div>
+      </form>
+    </section>
+
+    <section aria-labelledby="import-heading">
+      <h2 id="import-heading">导入</h2>
+      <p>以 Netscape HTML 格式导入书签和标签；新书签会被添加，已有书签会被更新。</p>
+      <form id="import-form">
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="import_shared" />
+            <i class="form-icon"></i>
+            将公开书签导入为共享书签
+          </label>
+          <div class="form-input-hint">
+            导入含 PRIVATE 属性的书签文件时，启用后未标记为私有的书签将导入为共享书签，否则全部导入为私有书签。
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="input-group width-75 width-md-100">
+            <input class="form-input" type="file" id="import_file" />
+            <button class="input-group-btn btn btn-primary" type="submit">上传</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section aria-labelledby="export-heading">
+      <h2 id="export-heading">导出</h2>
+      <p>以 Netscape HTML 格式导出全部书签。</p>
+      <a class="btn btn-primary" target="_blank" href="/api/v1/bookmarks/export">下载 (.html)</a>
+    </section>
+
+    <section class="about" aria-labelledby="about-heading">
+      <h2 id="about-heading">关于</h2>
+      <table class="table">
+        <tbody>
+          <tr><td>版本</td><td id="about-version">…</td></tr>
+          <tr>
+            <td style="vertical-align: top">链接</td>
+            <td>
+              <div class="d-flex flex-column gap-2">
+                <a href="https://github.com/jetsung/linklist" target="_blank">GitHub</a>
+                <a href="https://linklist.gcli.cn" target="_blank">文档</a>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</Layout>
+
+<!-- 修改密码弹窗 -->
+<div id="password-modal" class="modal">
+  <div class="modal-overlay" data-close-modal></div>
+  <div class="modal-container" role="dialog" aria-modal="true">
+    <div class="modal-header d-flex justify-between align-center">
+      <h2 class="modal-title">修改密码</h2>
+      <button class="btn btn-clear" data-close-modal aria-label="关闭">
+        <svg width="20" height="20"><use href="/icons.svg#close"></use></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="pw-form">
+        <div class="form-group">
+          <label class="form-label" for="current-password">当前密码</label>
+          <input id="current-password" type="password" class="form-input" autocomplete="current-password" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-password">新密码</label>
+          <input id="new-password" type="password" class="form-input" autocomplete="new-password" />
+        </div>
+        <button class="btn btn-primary btn-wide" type="submit">更新密码</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { get, put, post } from '../../scripts/api';
+  import { toastSuccess, toastError } from '../../scripts/toast';
+
+  const say = (t: string) => toastSuccess(t, { blocking: true });
+  const $id = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const setChecked = (id: string, v: boolean) => { ($id<HTMLInputElement>(id)).checked = v; };
+
+  // 对齐上游 general.html init()：
+  // 1) "描述最大行数"仅在选择"分块显示"时显示（inline 时隐藏所在 form-group）。
+  // 2) 关闭"启用共享"时禁用并清空"公开共享/新书签默认共享"。
+  function updateDescMaxLinesVisibility() {
+    const display = ($id<HTMLSelectElement>('bookmark_description_display')).value;
+    ($id<HTMLInputElement>('bookmark_description_max_lines')).closest('.form-group')?.classList.toggle('d-hide', display === 'inline');
+  }
+  function updateSharingOptions() {
+    const sharingOn = ($id<HTMLInputElement>('enable_sharing')).checked;
+    const publicSharing = $id<HTMLInputElement>('enable_public_sharing');
+    const defaultShared = $id<HTMLInputElement>('default_mark_shared');
+    publicSharing.disabled = !sharingOn;
+    defaultShared.disabled = !sharingOn;
+    if (!sharingOn) {
+      publicSharing.checked = false;
+      defaultShared.checked = false;
+    }
+  }
+  updateDescMaxLinesVisibility();
+  updateSharingOptions();
+  ($id<HTMLSelectElement>('bookmark_description_display')).addEventListener('change', updateDescMaxLinesVisibility);
+  ($id<HTMLInputElement>('enable_sharing')).addEventListener('change', updateSharingOptions);
+
+  (async () => {
+    try {
+      const p = await get('/api/v1/profile');
+      ($id<HTMLSelectElement>('theme')).value = p.theme || 'auto';
+      ($id<HTMLSelectElement>('bookmark_date_display')).value = p.bookmark_date_display || 'relative';
+      ($id<HTMLSelectElement>('bookmark_description_display')).value = p.bookmark_description_display || 'inline';
+      ($id<HTMLInputElement>('bookmark_description_max_lines')).value = String(p.bookmark_description_max_lines ?? 5);
+      ($id<HTMLInputElement>('items_per_page')).value = String(p.items_per_page ?? 30);
+      ($id<HTMLSelectElement>('bookmark_link_target')).value = p.bookmark_link_target || '_blank';
+      ($id<HTMLSelectElement>('tag_search')).value = p.tag_search || 'strict';
+      ($id<HTMLSelectElement>('tag_grouping')).value = p.tag_grouping || 'disabled';
+      ($id<HTMLSelectElement>('web_archive_integration')).value = p.web_archive_integration || 'disabled';
+      setChecked('display_url', p.display_url !== false);
+      setChecked('permanent_notes', !!p.permanent_notes);
+      setChecked('display_view_bookmark_action', p.display_view_bookmark_action !== false);
+      setChecked('display_edit_bookmark_action', p.display_edit_bookmark_action !== false);
+      setChecked('display_archive_bookmark_action', p.display_archive_bookmark_action !== false);
+      setChecked('display_remove_bookmark_action', p.display_remove_bookmark_action !== false);
+      setChecked('sticky_pagination', !!p.sticky_pagination);
+      setChecked('collapse_side_panel', !!p.collapse_side_panel);
+      setChecked('hide_bundles', !!p.hide_bundles);
+      setChecked('legacy_search', !!p.legacy_search);
+      setChecked('enable_favicons', !!p.enable_favicons);
+      setChecked('enable_preview_images', !!p.enable_preview_images);
+      setChecked('enable_automatic_snapshots', !!p.enable_automatic_snapshots);
+      setChecked('enable_sharing', !!p.enable_sharing);
+      setChecked('enable_public_sharing', !!p.enable_public_sharing);
+      setChecked('default_mark_unread', !!p.default_mark_unread);
+      setChecked('default_mark_shared', p.default_mark_shared !== false);
+      ($id<HTMLTextAreaElement>('custom_css')).value = p.custom_css || '';
+      // 回填完成后再按真实值刷新联动（初始调用时表单还是默认值）。
+      updateDescMaxLinesVisibility();
+      updateSharingOptions();
+      const r = await get('/api/v1/profile/auto-tagging-rules');
+      ($id<HTMLTextAreaElement>('auto-tag-rules')).value = (r.rules || [])
+        .map((x: { pattern: string; tags: string[] }) => `${x.pattern} ${(x.tags || []).join(' ')}`).join('\n');
+    } catch (e: unknown) {
+      const status = e instanceof Error && 'status' in e && typeof e.status === 'number' ? e.status : undefined;
+      if (status === 401) window.location.href = '/login';
+      else if (e instanceof Error) toastError(e.message);
+    }
+  })();
+
+  document.getElementById('prefs-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await put('/api/v1/profile', {
+        theme: ($id<HTMLSelectElement>('theme')).value,
+        items_per_page: Number(($id<HTMLInputElement>('items_per_page')).value) || 30,
+        tag_grouping: ($id<HTMLSelectElement>('tag_grouping')).value,
+        enable_favicons: ($id<HTMLInputElement>('enable_favicons')).checked,
+        enable_preview_images: ($id<HTMLInputElement>('enable_preview_images')).checked,
+        enable_automatic_snapshots: ($id<HTMLInputElement>('enable_automatic_snapshots')).checked,
+        enable_sharing: ($id<HTMLInputElement>('enable_sharing')).checked,
+        enable_public_sharing: ($id<HTMLInputElement>('enable_public_sharing')).checked,
+        custom_css: ($id<HTMLTextAreaElement>('custom_css')).value,
+        bookmark_date_display: ($id<HTMLSelectElement>('bookmark_date_display')).value,
+        bookmark_description_display: ($id<HTMLSelectElement>('bookmark_description_display')).value,
+        bookmark_description_max_lines: Number(($id<HTMLInputElement>('bookmark_description_max_lines')).value) || 5,
+        display_url: ($id<HTMLInputElement>('display_url')).checked,
+        permanent_notes: ($id<HTMLInputElement>('permanent_notes')).checked,
+        display_view_bookmark_action: ($id<HTMLInputElement>('display_view_bookmark_action')).checked,
+        display_edit_bookmark_action: ($id<HTMLInputElement>('display_edit_bookmark_action')).checked,
+        display_archive_bookmark_action: ($id<HTMLInputElement>('display_archive_bookmark_action')).checked,
+        display_remove_bookmark_action: ($id<HTMLInputElement>('display_remove_bookmark_action')).checked,
+        bookmark_link_target: ($id<HTMLSelectElement>('bookmark_link_target')).value,
+        sticky_pagination: ($id<HTMLInputElement>('sticky_pagination')).checked,
+        collapse_side_panel: ($id<HTMLInputElement>('collapse_side_panel')).checked,
+        hide_bundles: ($id<HTMLInputElement>('hide_bundles')).checked,
+        tag_search: ($id<HTMLSelectElement>('tag_search')).value,
+        legacy_search: ($id<HTMLInputElement>('legacy_search')).checked,
+        web_archive_integration: ($id<HTMLSelectElement>('web_archive_integration')).value,
+        default_mark_unread: ($id<HTMLInputElement>('default_mark_unread')).checked,
+        default_mark_shared: ($id<HTMLInputElement>('default_mark_shared')).checked,
+      });
+      const lines = ($id<HTMLTextAreaElement>('auto-tag-rules')).value
+        .split('\n').map((l) => l.trim()).filter(Boolean)
+        // 每行：URL 表达式 + 标签（可多个），对齐上游 auto_tagging.get_tags 的行格式。
+        .map((l) => { const [pattern, ...tags] = l.split(/\s+/); return { field: 'url', match_type: 'contains', pattern, tags }; })
+        .filter((x) => x.tags.length && x.pattern);
+      await put('/api/v1/profile/auto-tagging-rules', lines);
+      // 主题立即生效：同步 localStorage 并重应用主题样式表（不依赖整页刷新）。
+      const theme = ($id<HTMLSelectElement>('theme')).value;
+      try {
+        if (theme === 'light' || theme === 'dark') localStorage.setItem('theme', theme);
+        else localStorage.removeItem('theme');
+      } catch { /* 隐私模式等场景忽略 */ }
+      if (window.__applyTheme) {
+        const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        window.__applyTheme(theme === 'light' || theme === 'dark' ? theme : (sysDark ? 'dark' : 'light'));
+      }
+      say('设置已保存');
+    } catch (e: unknown) { toastError(e instanceof Error ? e.message : '保存失败', { blocking: true }); }
+  });
+
+  // 刷新网站图标（对齐原版 refresh_favicons）。
+  document.getElementById('refresh-favicons')?.addEventListener('click', async () => {
+    const btn = $id<HTMLButtonElement>('refresh-favicons');
+    btn.disabled = true;
+    try {
+      await post('/api/v1/profile/refresh-favicons', {});
+      say('网站图标刷新任务已启动，稍后自动完成');
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '刷新失败', { blocking: true });
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const modal = document.getElementById('password-modal') as HTMLElement;
+  document.getElementById('change-password-link')?.addEventListener('click', (e) => {
+    e.preventDefault(); modal.classList.add('active');
+  });
+  modal.querySelectorAll('[data-close-modal]').forEach((el) =>
+    el.addEventListener('click', () => modal.classList.remove('active')));
+  document.getElementById('pw-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await post('/api/v1/auth/password', {
+        current_password: ($id<HTMLInputElement>('current-password')).value,
+        new_password: ($id<HTMLInputElement>('new-password')).value,
+      });
+      toastSuccess('密码已更新', { blocking: true });
+      modal.classList.remove('active');
+    } catch (e: unknown) { toastError(e instanceof Error ? e.message : '更新失败', { blocking: true }); }
+  });
+
+  document.getElementById('import-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $id<HTMLInputElement>('import_file');
+    if (!input.files?.length) { toastError('请选择文件'); return; }
+    const file = input.files[0];
+    const mapPrivate = ($id<HTMLInputElement>('import_shared'))?.checked ? 'true' : 'false';
+    try {
+      const text = await file.text();
+      const resp = await fetch(`/api/v1/bookmarks/import?map_private_flag=${mapPrivate}`, {
+        method: 'POST', body: text, credentials: 'same-origin',
+      });
+      if (!resp.ok) throw new Error(`导入失败 (${resp.status})`);
+      const d = await resp.json();
+      toastSuccess(`导入完成：新增 ${d.created ?? d.imported ?? '?'}，重复 ${d.duplicates ?? 0}`, { blocking: true });
+    } catch (e: unknown) { toastError(e instanceof Error ? e.message : '导入失败', { blocking: true }); }
+  });
+
+  (async () => {
+    try { const d = await get('/api/v1/version'); ($id<HTMLElement>('about-version')).textContent = d.version; }
+    catch { ($id<HTMLElement>('about-version')).textContent = 'LinkList'; }
+  })();
+
+  // ---- 全局设置（仅管理员可见，对齐原版 Global settings）----
+  (async () => {
+    try {
+      const me = await get('/api/v1/auth/me');
+      if (!me.is_admin) return;
+      const section = document.getElementById('global-settings-section') as HTMLElement;
+      const s = await get('/api/v1/admin/settings');
+      ($id<HTMLSelectElement>('landing_page')).value = s.landing_page === 'shared_bookmarks' ? 'shared_bookmarks' : 'login';
+      setChecked('enable_link_prefetch', s.enable_link_prefetch === 'true');
+      // 访客资料候选用户列表。
+      const users = await get('/api/v1/admin/users');
+      const list = users.users || users.results || [];
+      const sel = $id<HTMLSelectElement>('guest_profile_user');
+      for (const u of list) {
+        const opt = document.createElement('option');
+        opt.value = String(u.id);
+        opt.textContent = u.username;
+        if (String(s.guest_profile_user || '') === String(u.id)) opt.selected = true;
+        sel.append(opt);
+      }
+      if (s.guest_profile_user) sel.value = String(s.guest_profile_user);
+      section.style.display = '';
+    } catch { /* 非管理员或接口不可用：隐藏 */ }
+  })();
+
+  document.getElementById('global-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await put('/api/v1/admin/settings', {
+        landing_page: ($id<HTMLSelectElement>('landing_page')).value,
+        guest_profile_user: ($id<HTMLSelectElement>('guest_profile_user')).value,
+        enable_link_prefetch: ($id<HTMLInputElement>('enable_link_prefetch')).checked ? 'true' : 'false',
+      });
+      toastSuccess('全局设置已保存', { blocking: true });
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '保存失败', { blocking: true });
+    }
+  });
+</script>

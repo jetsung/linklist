@@ -1,0 +1,247 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="标签">
+  <div class="tags-page crud-page">
+    <main aria-labelledby="main-heading">
+      <div class="crud-header">
+        <h1 id="main-heading">标签</h1>
+        <div class="d-flex gap-2 ml-auto">
+          <button id="create-tag" class="btn">新建标签</button>
+          <button id="merge-tags" class="btn">合并标签</button>
+        </div>
+      </div>
+      <div class="crud-filters">
+        <form id="tag-filters" autocomplete="off">
+          <div class="form-group">
+            <label class="form-label text-assistive" for="tag-search">搜索标签</label>
+            <div class="input-group">
+              <input type="text" id="tag-search" class="form-input" placeholder="搜索标签…" />
+              <button type="submit" class="btn input-group-btn">搜索</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-assistive" for="tag-sort">排序</label>
+            <div class="input-group">
+              <select id="tag-sort" class="form-select">
+                <option value="name-asc">名称 A→Z</option>
+                <option value="name-desc">名称 Z→A</option>
+                <option value="count-asc">书签最少</option>
+                <option value="count-desc">书签最多</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input type="checkbox" id="tag-unused" />
+              <i class="form-icon"></i> 仅显示未使用的标签
+            </label>
+          </div>
+        </form>
+        <p class="text-secondary text-small" id="tag-count"></p>
+      </div>
+      <table class="table crud-table" id="tags-table">
+        <thead>
+          <tr><th>名称</th><th style="width:25%">书签数</th><th class="actions"><span class="text-assistive">操作</span></th></tr>
+        </thead>
+        <tbody id="tag-rows"></tbody>
+      </table>
+      <div id="tags-empty" class="empty" style="display:none">
+        <p class="empty-title h5">还没有标签</p>
+        <p class="empty-subtitle">给书签添加标签后会显示在这里</p>
+      </div>
+    </main>
+  </div>
+
+  <div id="tag-modal" class="modal">
+    <div class="modal-overlay" data-close-modal></div>
+    <div class="modal-container" role="dialog" aria-modal="true">
+      <div class="modal-header d-flex justify-between align-center">
+        <h2 class="modal-title" id="tag-modal-title">新建标签</h2>
+        <button class="btn btn-clear" data-close-modal aria-label="关闭">
+          <svg width="20" height="20"><use href="/icons.svg#close"></use></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" id="tag-name-group">
+          <label class="form-label" for="tag-name">名称</label>
+          <input id="tag-name" class="form-input" required />
+          <p class="form-input-hint">标签名不区分大小写，不能包含空格（空格会被替换为连字符）。</p>
+        </div>
+        <details class="mb-4" id="tag-merge-help">
+          <summary><span class="text-bold">如何合并标签</span></summary>
+          <ol>
+            <li>输入要保留的标签名</li>
+            <li>输入要合并进目标标签的标签名</li>
+            <li>目标标签会添加到所有含待合并标签的书签上</li>
+            <li>合并后，待合并的标签会被删除</li>
+          </ol>
+        </details>
+        <div class="form-group" id="tag-merge-group" style="display:none">
+          <label class="form-label" for="tag-merge-target">目标标签</label>
+          <input id="tag-merge-target" class="form-input" placeholder="要保留的标签名" />
+          <p class="form-input-hint">输入要保留的标签名，下方标签将合并进该标签。</p>
+        </div>
+        <div class="form-group" id="tag-merge-source-group" style="display:none">
+          <label class="form-label" for="tag-merge-source">要合并的标签</label>
+          <input id="tag-merge-source" class="form-input" placeholder="多个标签用空格分隔" />
+          <p class="form-input-hint">输入要合并的标签名（空格分隔），合并后这些标签会被删除。</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="actions d-flex justify-between">
+          <button class="btn btn-wide" data-close-modal type="button">取消</button>
+          <button class="btn btn-primary btn-wide" id="tag-save" type="button" data-label-create="保存" data-label-merge="合并标签">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  import { get, post, patch, del } from '../scripts/api';
+  import { toastSuccess, toastError } from '../scripts/toast';
+  import { confirmDialog } from '../scripts/confirm';
+
+  interface TagRow { id: number; name: string; usage_count: number; }
+
+  const modal = document.getElementById('tag-modal') as HTMLDivElement;
+  let mode: 'create' | 'edit' | 'merge' = 'create';
+  let editName = '';
+
+  function openModal(m: 'create' | 'edit' | 'merge', name = '') {
+    mode = m; editName = name;
+    const title = document.getElementById('tag-modal-title') as HTMLElement;
+    const nameGroup = document.getElementById('tag-name-group') as HTMLDivElement;
+    const mergeGroup = document.getElementById('tag-merge-group') as HTMLDivElement;
+    const mergeSourceGroup = document.getElementById('tag-merge-source-group') as HTMLDivElement;
+    const mergeHelp = document.getElementById('tag-merge-help') as HTMLDetailsElement;
+    (document.getElementById('tag-name') as HTMLInputElement).value = m === 'edit' ? name : '';
+    (document.getElementById('tag-merge-target') as HTMLInputElement).value = m === 'merge' ? name : '';
+    (document.getElementById('tag-merge-source') as HTMLInputElement).value = '';
+    if (m === 'merge') {
+      title.textContent = '合并标签';
+      nameGroup.style.display = 'none';
+      mergeGroup.style.display = '';
+      mergeSourceGroup.style.display = '';
+      mergeHelp.style.display = '';
+    } else {
+      title.textContent = m === 'edit' ? '编辑标签' : '新建标签';
+      nameGroup.style.display = '';
+      mergeGroup.style.display = 'none';
+      mergeSourceGroup.style.display = 'none';
+      mergeHelp.style.display = 'none';
+    }
+    const saveBtn = document.getElementById('tag-save') as HTMLButtonElement;
+    saveBtn.textContent = m === 'merge' ? (saveBtn.dataset.labelMerge || '合并标签') : (saveBtn.dataset.labelCreate || '保存');
+    modal.classList.add('active');
+  }
+  function closeModal() { modal.classList.remove('active'); }
+  modal.querySelectorAll('[data-close-modal]').forEach((el) => el.addEventListener('click', closeModal));
+
+  document.getElementById('tag-save')?.addEventListener('click', async () => {
+    try {
+      if (mode === 'merge') {
+        const target = (document.getElementById('tag-merge-target') as HTMLInputElement).value.trim();
+        const sources = (document.getElementById('tag-merge-source') as HTMLInputElement).value
+          .split(/[\s,，]+/)
+          .map((s) => s.replace(/^#/, '').trim())
+          .filter(Boolean);
+        if (!target) { toastError('请输入目标标签', { blocking: true }); return; }
+        if (!sources.length) { toastError('请输入要合并的标签', { blocking: true }); return; }
+        if (sources.some((s) => s.toLowerCase() === target.toLowerCase())) {
+          toastError('目标标签不能同时出现在要合并的标签里', { blocking: true });
+          return;
+        }
+        await post('/api/v1/bookmarks/tags/merge', { target, sources });
+      } else {
+        const name = (document.getElementById('tag-name') as HTMLInputElement).value.trim();
+        if (!name) { toastError('名称不能为空', { blocking: true }); return; }
+        if (mode === 'edit') await patch(`/api/v1/bookmarks/tags/${encodeURIComponent(editName)}`, { name });
+        else await post('/api/v1/bookmarks/tags', { name });
+      }
+      toastSuccess('已保存', { blocking: true });
+      closeModal();
+      await load();
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '保存失败', { blocking: true });
+    }
+  });
+
+  function currentFilters() {
+    return {
+      search: (document.getElementById('tag-search') as HTMLInputElement).value.trim().toLowerCase(),
+      sort: (document.getElementById('tag-sort') as HTMLSelectElement).value,
+      unused: (document.getElementById('tag-unused') as HTMLInputElement).checked,
+    };
+  }
+
+  function render(items: TagRow[]) {
+    const rows = document.getElementById('tag-rows') as HTMLTableSectionElement;
+    const f = currentFilters();
+    let list = items.filter((t) => !f.search || t.name.toLowerCase().includes(f.search));
+    if (f.unused) list = list.filter((t) => t.usage_count === 0);
+    const isEn = (n: string) => /^[a-z]/i.test(n);
+    const byNameAsc = (a: TagRow, b: TagRow) =>
+      isEn(a.name) !== isEn(b.name)
+        ? (isEn(a.name) ? -1 : 1)
+        : isEn(a.name)
+          ? a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+          : a.name.localeCompare(b.name, 'zh-CN');
+    list = [...list].sort((a, b) => {
+      switch (f.sort) {
+        case 'name-desc': return byNameAsc(b, a);
+        case 'count-asc': return a.usage_count - b.usage_count || byNameAsc(a, b);
+        case 'count-desc': return b.usage_count - a.usage_count || byNameAsc(a, b);
+        default: return byNameAsc(a, b);
+      }
+    });
+    rows.textContent = '';
+    (document.getElementById('tags-table') as HTMLTableElement).style.display = list.length ? '' : 'none';
+    (document.getElementById('tags-empty') as HTMLDivElement).style.display = list.length ? 'none' : '';
+    (document.getElementById('tag-count') as HTMLElement).textContent =
+      f.search || f.unused ? `显示 ${list.length} / ${items.length} 个标签` : `共 ${items.length} 个标签`;
+    for (const t of list) {
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td'); tdName.textContent = t.name;
+      const tdCount = document.createElement('td');
+      const countLink = document.createElement('a'); countLink.href = `/bookmarks?q=${encodeURIComponent('#' + t.name)}`; countLink.textContent = String(t.usage_count); countLink.className = 'btn btn-link';
+      tdCount.append(countLink);
+      const tdActions = document.createElement('td'); tdActions.className = 'actions';
+      const edit = document.createElement('button'); edit.className = 'btn btn-link'; edit.textContent = '编辑';
+      edit.addEventListener('click', () => openModal('edit', t.name));
+      const merge = document.createElement('button'); merge.className = 'btn btn-link'; merge.textContent = '合并';
+      merge.addEventListener('click', () => openModal('merge', t.name));
+      const remove = document.createElement('button'); remove.className = 'btn btn-link text-error'; remove.textContent = '删除';
+      remove.addEventListener('click', async () => {
+        if (!(await confirmDialog(`删除标签「${t.name}」？该书签上的此标签会被移除。`))) return;
+        try { await del(`/api/v1/bookmarks/tags/${encodeURIComponent(t.name)}`); toastSuccess('标签已删除', { blocking: true }); await load(); }
+        catch { toastError('删除失败', { blocking: true }); }
+      });
+      tdActions.append(edit, merge, remove);
+      tr.append(tdName, tdCount, tdActions);
+      rows.append(tr);
+    }
+  }
+
+  let all: TagRow[] = [];
+  async function load() {
+    const d = await get('/api/v1/bookmarks/tags');
+    all = (d.results || []) as TagRow[];
+    render(all);
+  }
+
+  (document.getElementById('tag-filters') as HTMLFormElement)?.addEventListener('submit', (e) => { e.preventDefault(); render(all); });
+  document.getElementById('tag-sort')?.addEventListener('change', () => render(all));
+  document.getElementById('tag-unused')?.addEventListener('change', () => render(all));
+  document.getElementById('tag-search')?.addEventListener('input', () => render(all));
+  document.getElementById('create-tag')?.addEventListener('click', () => openModal('create'));
+  document.getElementById('merge-tags')?.addEventListener('click', () => openModal('merge'));
+
+  (async () => {
+    try { await load(); }
+    catch (e: unknown) {
+      if (e instanceof Error && 'status' in e && (e as { status?: number }).status === 401) window.location.href = '/login';
+    }
+  })();
+</script>

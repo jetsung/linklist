@@ -1,0 +1,211 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="编辑书签">
+  <div class="bookmarks-form-page grid columns-md-1">
+    <main aria-labelledby="main-heading" class="col-2">
+      <div class="section-header"><h1 id="main-heading">编辑书签</h1></div>
+      <form id="bookmark-form" novalidate>
+        <div class="bookmarks-form">
+          <div class="form-group">
+            <label class="form-label" for="url">URL</label>
+            <div class="has-icon-right">
+              <input id="url" name="url" class="form-input" type="url" required placeholder="https://" />
+              <i class="form-icon loading"></i>
+            </div>
+            <div class="form-input-hint bookmark-exists">
+              该 URL 已存在书签。表单已预填现有书签内容，保存将更新该书签。
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tag-string">标签</label>
+            <input id="tag-string" name="tag_string" class="form-input" placeholder="多个标签以空格分隔，无需 #" />
+            <p class="form-input-hint">输入任意数量的标签，用空格分隔且<strong>不要</strong>带井号（#）。不存在的标签会自动创建。</p>
+            <div class="form-input-hint auto-tags"></div>
+          </div>
+          <div class="form-group">
+            <div class="d-flex justify-between align-baseline">
+              <label class="form-label" for="title">标题</label>
+              <div class="flex">
+                <button id="refresh-button" class="btn btn-link suffix-button" type="button">从网站刷新</button>
+                <button id="clear-title" class="ml-2 btn btn-link suffix-button" type="button">清除</button>
+              </div>
+            </div>
+            <input id="title" name="title" class="form-input" />
+          </div>
+          <div class="form-group">
+            <div class="d-flex justify-between align-baseline">
+              <label class="form-label" for="description">描述</label>
+              <button id="clear-description" class="btn btn-link suffix-button" type="button">清除</button>
+            </div>
+            <textarea id="description" name="description" class="form-input" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <details class="notes" id="notes-details">
+              <summary><span class="form-label d-inline-block">备注</span></summary>
+              <textarea id="notes" name="notes" class="form-input" rows="8"></textarea>
+              <p class="form-input-hint">补充备注，支持 Markdown。</p>
+            </details>
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input id="unread" name="unread" type="checkbox" />
+              <i class="form-icon"></i>
+              标记为未读
+            </label>
+            <p class="form-input-hint">未读书签可被筛选，在你查看后可标记为已读。</p>
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input id="shared" name="shared" type="checkbox" />
+              <i class="form-icon"></i>
+              共享此书签
+            </label>
+            <p class="form-input-hint">与其他注册用户共享此书签。</p>
+          </div>
+          <div class="divider"></div>
+          <div class="form-group d-flex justify-between">
+            <button class="btn btn-primary btn-wide" type="submit">保存</button>
+            <a href="/bookmarks" class="btn btn-wide">取消</a>
+          </div>
+        </div>
+      </form>
+    </main>
+  </div>
+</Layout>
+
+<script>
+  import { get, patch, put } from '../../scripts/api';
+  import { toastError, queueToast } from '../../scripts/toast';
+
+  const form = document.getElementById('bookmark-form') as HTMLFormElement;
+  const urlInput = document.getElementById('url') as HTMLInputElement;
+  const titleInput = document.getElementById('title') as HTMLInputElement;
+  const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+  const notesInput = document.getElementById('notes') as HTMLTextAreaElement;
+  const notesDetails = document.getElementById('notes-details') as HTMLDetailsElement;
+  const tagsInput = document.getElementById('tag-string') as HTMLInputElement;
+  const refreshButton = document.getElementById('refresh-button') as HTMLButtonElement;
+  const bookmarkExistsHint = document.querySelector('.form-input-hint.bookmark-exists') as HTMLElement;
+  const autoTagsHint = document.querySelector('.form-input-hint.auto-tags') as HTMLElement;
+
+  function fail(msg: string) { toastError(msg, { blocking: true }); }
+  function toggleLoadingIcon(show: boolean) {
+    const icon = urlInput.parentNode?.querySelector('i.form-icon') as HTMLElement | null;
+    if (icon) icon.style.visibility = show ? 'visible' : 'hidden';
+  }
+
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (!id) { window.location.href = '/bookmarks'; }
+
+  (async () => {
+    try {
+      const b = await get(`/api/v1/bookmarks/${id}`);
+      urlInput.value = b.url;
+      titleInput.value = b.title || '';
+      descriptionInput.value = b.description || '';
+      notesInput.value = b.notes || '';
+      if (b.notes) notesDetails.open = true;
+      (document.getElementById('unread') as HTMLInputElement).checked = !!b.is_unread;
+      (document.getElementById('shared') as HTMLInputElement).checked = !!b.is_shared;
+      tagsInput.value = (b.tags || [])
+        .map((t: { name: string } | string) => (typeof t === 'string' ? t : t.name)).join(' ');
+      // 编辑已有书签：刷新按钮始终可用（对齐 linkding）。
+      refreshButton.style.display = 'inline-block';
+    } catch (e: any) {
+      if (e.status === 401) window.location.href = '/login'; else fail(e.message);
+    }
+  })();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = urlInput.value.trim();
+    if (!url) { fail('URL 不能为空'); return; }
+    const tags = tagsInput.value.trim().split(/\s+/).filter(Boolean);
+    try {
+      await patch(`/api/v1/bookmarks/${id}`, {
+        url,
+        title: titleInput.value.trim() || null,
+        description: descriptionInput.value.trim() || null,
+        notes: notesInput.value.trim() || null,
+        is_unread: (document.getElementById('unread') as HTMLInputElement).checked,
+        is_shared: (document.getElementById('shared') as HTMLInputElement).checked,
+      });
+      await put(`/api/v1/bookmarks/${id}/tags`, { tags });
+      queueToast('书签已更新');
+      window.location.href = '/bookmarks';
+    } catch (e: any) {
+      if (e.status === 401) window.location.href = '/login'; else fail(e.message);
+    }
+  });
+
+  // URL 变更（防抖）后重新检查：若 URL 改成了另一本已存在书签，提示并预填该书签内容（对齐 linkding checkUrl）。
+  let isTitleModified = !!titleInput.value;
+  let isDescriptionModified = !!descriptionInput.value;
+  titleInput.addEventListener('input', () => { isTitleModified = true; });
+  descriptionInput.addEventListener('input', () => { isDescriptionModified = true; });
+
+  function debounce<T extends (...args: never[]) => void>(fn: T, delay = 500) {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    return (...args: Parameters<T>) => {
+      clearTimeout(t);
+      t = setTimeout(() => { t = undefined; fn(...args); }, delay);
+    };
+  }
+
+  async function checkUrl() {
+    const u = urlInput.value.trim();
+    if (!u) return;
+    toggleLoadingIcon(true);
+    try {
+      const data = await get(`/api/v1/bookmarks/check?url=${encodeURIComponent(u)}`);
+      const existing = data.bookmark && String(data.bookmark.id) !== String(id);
+      if (existing) {
+        bookmarkExistsHint.style.display = 'block';
+        form.dataset.existingId = String(data.bookmark.id);
+        titleInput.value = data.bookmark.title || '';
+        descriptionInput.value = data.bookmark.description || '';
+        notesInput.value = data.bookmark.notes || '';
+        notesDetails.open = !!data.bookmark.notes;
+        tagsInput.value = (data.bookmark.tags || []).map((t: { name: string } | string) => typeof t === 'string' ? t : t.name).join(' ');
+        (document.getElementById('unread') as HTMLInputElement).checked = !!data.bookmark.is_unread;
+        (document.getElementById('shared') as HTMLInputElement).checked = !!data.bookmark.is_shared;
+      } else {
+        bookmarkExistsHint.style.display = 'none';
+        delete form.dataset.existingId;
+        if (!isTitleModified && data.metadata?.title) titleInput.value = data.metadata.title;
+        if (!isDescriptionModified && data.metadata?.description) descriptionInput.value = data.metadata.description;
+      }
+      const autoTags: string[] = data.auto_tags || [];
+      if (autoTags.length) {
+        autoTags.sort();
+        autoTagsHint.style.display = 'block';
+        autoTagsHint.textContent = `自动标签：${autoTags.join(' ')}`;
+      } else {
+        autoTagsHint.style.display = 'none';
+      }
+    } catch { /* 静默：check 失败不影响手填 */ }
+    toggleLoadingIcon(false);
+  }
+
+  urlInput.addEventListener('input', debounce(() => { checkUrl(); }));
+
+  // 从网站刷新元数据（ignore_cache，重新抓取；与已有书签内容不同才覆盖，对齐 linkding）。
+  refreshButton?.addEventListener('click', async () => {
+    const u = urlInput.value.trim();
+    if (!u) { fail('请先填写 URL'); return; }
+    toggleLoadingIcon(true);
+    try {
+      const data = await get(`/api/v1/bookmarks/check?url=${encodeURIComponent(u)}&ignore_cache=true`);
+      const existingTitle = form.dataset.existingId ? titleInput.value : null;
+      const existingDescription = form.dataset.existingId ? descriptionInput.value : null;
+      if (data.metadata?.title && data.metadata.title !== existingTitle) { titleInput.value = data.metadata.title; titleInput.classList.add('modified'); }
+      if (data.metadata?.description && data.metadata.description !== existingDescription) { descriptionInput.value = data.metadata.description; descriptionInput.classList.add('modified'); }
+    } catch (e: unknown) { fail(e instanceof Error ? e.message : '刷新失败'); }
+    toggleLoadingIcon(false);
+  });
+
+  // 清除按钮（对齐 ld-clear-button）。
+  document.getElementById('clear-title')?.addEventListener('click', () => { titleInput.value = ''; titleInput.focus(); });
+  document.getElementById('clear-description')?.addEventListener('click', () => { descriptionInput.value = ''; descriptionInput.focus(); });
+</script>

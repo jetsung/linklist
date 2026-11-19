@@ -1,0 +1,29 @@
+# 构建上下文裁剪：只保留 Rust 与前端源码，加速上下文传输并避免本地过期产物
+# 混入构建（frontend/dist 由 Dockerfile 内的前端阶段重新生成）。
+
+# Git 与 CI
+.git/
+.github/
+.gitignore
+
+# Rust 构建产物
+target/
+
+# 前端依赖与本地产物（frontend/dist 由构建阶段生成，不得用过期的本地副本）
+node_modules/
+frontend/astro/node_modules/
+frontend/dist/
+
+# 运行数据与日志
+data/
+*.log
+
+# 本地配置与文档
+.env
+config.toml
+
+# 参考资料与临时文件
+linkding/
+bookmarks_*.html
+upstream.txt
+openspec/

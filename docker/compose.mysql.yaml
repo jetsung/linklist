@@ -1,0 +1,48 @@
+# linklist 的 MySQL 形态（官方 mysql 镜像，8.4 LTS）——叠加在基础编排之上使用：
+#
+#   docker compose -f docker/compose.yaml -f docker/compose.mysql.yaml up -d
+#
+# 凭据从 docker/.env（compose 项目目录）或当前 shell 环境读取，下面给出默认值；
+# 生产部署务必在 docker/.env 中覆盖。注意：凭据会被拼进连接串，
+# 密码请使用字母数字（避免 URL 特殊字符转义问题）：
+#   MYSQL_USER=linklist
+#   MYSQL_PASSWORD=change-me
+#   MYSQL_DATABASE=linklist
+#   MYSQL_ROOT_PASSWORD=change-me-root
+# 中国网络环境拉取镜像遵循仓库 docker mtrans 约定（docker mtrans spull mysql:8.4）。
+#
+# linklist 容器仅在 mysql 健康后启动（depends_on: service_healthy）；
+# utf8mb4/0900_ai_ci 与迁移文件的表级字符集一致；数据落 mysql_data 卷。
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: linklist-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-linklist}
+      MYSQL_USER: ${MYSQL_USER:-linklist}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  # 覆盖 linklist 服务：连接串指向 mysql，并等待其健康。
+  linklist:
+    environment:
+      LINKLIST_DATABASE_URL: "mysql://${MYSQL_USER:-linklist}:${MYSQL_PASSWORD:-change-me}@mysql:3306/${MYSQL_DATABASE:-linklist}?characterEncoding=utf8mb4"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

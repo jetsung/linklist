@@ -1,0 +1,85 @@
+/* linklist 设计系统：CSS 变量 + 基础组件（无 CDN、无框架） */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1a1d21;
+  --muted: #6b7280;
+  --border: #e2e5ea;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --radius: 8px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+[data-theme="dark"] {
+  --bg: #101418;
+  --surface: #1a1f26;
+  --fg: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #2d333c;
+  --accent: #3b82f6;
+  --accent-fg: #ffffff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font); font-size: 15px; line-height: 1.5;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.container { max-width: 960px; margin: 0 auto; padding: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+}
+.btn {
+  display: inline-block; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--fg); padding: 7px 14px; cursor: pointer;
+  font: inherit;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.sm { padding: 3px 8px; font-size: 13px; }
+input, select, textarea {
+  font: inherit; color: var(--fg); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 10px;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+label { display: block; margin: 10px 0 4px; font-weight: 500; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.navbar {
+  display: flex; gap: 16px; align-items: center;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 10px 16px; margin-bottom: 16px;
+}
+.navbar .brand { font-weight: 700; font-size: 17px; color: var(--fg); }
+.navbar nav { display: flex; gap: 12px; flex: 1; }
+.navbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.tag {
+  display: inline-block; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 9px; font-size: 12.5px; color: var(--muted);
+  margin-right: 4px; cursor: pointer;
+}
+.tag.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.bookmark-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.bookmark-item .favicon { width: 20px; height: 20px; border-radius: 4px; flex: none; margin-top: 2px; }
+.bookmark-item .body { flex: 1; min-width: 0; }
+.bookmark-item .title { font-weight: 600; }
+.bookmark-item .url { color: var(--muted); font-size: 12.5px; word-break: break-all; }
+.bookmark-item .desc { font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+.bookmark-item .actions { display: flex; gap: 6px; flex: none; }
+.muted { color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spread { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.error-text { color: var(--danger); font-size: 13px; margin-top: 6px; }
+.ok-text { color: var(--ok); font-size: 13px; margin-top: 6px; }
+.badge { font-size: 12px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.badge.unread { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.pagination { display: flex; gap: 8px; margin-top: 12px; }
+.auth-card { max-width: 360px; margin: 80px auto; }
+h1 { font-size: 20px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 0 0 10px; }

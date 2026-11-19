@@ -1,0 +1,299 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  /** 无导航栏（登录页等公开页用）。 */
+  bare?: boolean;
+  /** 公开共享页：头部固定显示 LOGO + 登录链接，不渲染完整登录导航（对齐 linkding 公开 /shared）。 */
+  publicHeader?: boolean;
+  /** 按登录态渲染头部：已登录显示完整导航，未登录只显示"登录"（对齐 linkding /bookmarks/shared 匿名可见）。 */
+  authHeader?: boolean;
+}
+const { title, bare = false, publicHeader = false, authHeader = false } = Astro.props;
+
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} · LinkList</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="search" type="application/opensearchdescription+xml" href="/opensearch.xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="LinkList" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="LinkList" />
+    <meta name="theme-color" content="#5856e0" />
+    <script is:inline>
+      // 主题：静态构建无法按请求选样式，客户端按 profile.theme 注入主题样式表
+      // （对齐上游 head.html：light→theme-light，dark→theme-dark，auto→按系统偏好切换）。
+      (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('theme'); } catch {}
+        var apply = function (t) {
+          var old = document.getElementById('theme-css');
+          if (old) old.remove();
+          var link = document.createElement('link');
+          link.id = 'theme-css';
+          link.rel = 'stylesheet';
+          link.href = t === 'dark' ? '/theme_dark.css' : '/theme_light.css';
+          document.head.append(link);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.content = t === 'dark' ? '#161822' : '#5856e0';
+        };
+        window.__applyTheme = apply;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        var storedTheme = stored === 'light' || stored === 'dark' ? stored : null;
+        var effective = storedTheme || (mq.matches ? 'dark' : 'light');
+        apply(effective);
+        // auto 模式跟随系统切换（仅当用户未固定主题时）。
+        mq.addEventListener('change', function (e) {
+          var s = null;
+          try { s = localStorage.getItem('theme'); } catch {}
+          if (s !== 'light' && s !== 'dark') apply(e.matches ? 'dark' : 'light');
+        });
+      })();
+    </script>
+    <script is:inline>
+      // 自定义 CSS + 主题偏好：静态构建无法按请求渲染，客户端探测后按需注入。
+      // 登录用户读本人 /api/v1/profile；匿名读"生效资料"（访客资料 guest_profile_user，
+      // 对齐上游 LinkdingMiddleware 为匿名请求注入的 user_profile）。
+      (async () => {
+        let p = null;
+        try {
+          const r = await fetch('/api/v1/profile', { credentials: 'same-origin' });
+          if (r.ok) p = await r.json();
+        } catch { /* 接口异常按匿名处理 */ }
+        if (!p) {
+          try {
+            const r = await fetch('/api/v1/shared/viewer-profile', { credentials: 'same-origin' });
+            if (r.ok) p = await r.json();
+          } catch { /* 匿名且无访客资料：保持默认 */ }
+        }
+        if (!p) return;
+        // 主题：生效资料 theme 覆盖（登录用户写 localStorage 供下次首屏免闪使用）。
+        if (p.theme === 'light' || p.theme === 'dark') {
+          if (!p.anonymous) { try { localStorage.setItem('theme', p.theme); } catch {} }
+          if (window.__applyTheme) window.__applyTheme(p.theme);
+        } else if (!p.anonymous) {
+          try { localStorage.removeItem('theme'); } catch {}
+        }
+        if (p.custom_css) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = '/custom_css';
+          document.head.append(link);
+        }
+      })();
+    </script>
+    <script is:inline data-prefetch>
+      // 链接悬停预取脚本（上游 head.html turbo-prefetch 的等价实现）。
+      // 悬停/聚焦/触摸应用内链接时提前 GET 目标页面（浏览器 HTTP 缓存），
+      // 点击导航时命中缓存以缩短跳转耗时；仅预取同源 GET 页面链接，
+      // 排除外链/静态资源/登出等，可用 data-prefetch="false" 单点关闭。
+      // 立即安装监听与预取实现；是否生效由启动脚本按全局设置决定（enabled 标志）。
+      (function () {
+        var CACHE = new Map(); // url -> Promise<HTML|undefined>，防止重复预取
+        var ENABLED = true;
+        function inFlight(url) { return CACHE.get(url); }
+        function mark(url, promise) { CACHE.set(url, promise); return promise; }
+        function canPrefetch(el) {
+          if (!ENABLED) return false;
+          if (!el || el.target === '_blank' || el.hasAttribute('download')) return false;
+          if (el.dataset && el.dataset.prefetch === 'false') return false;
+          var href = el.getAttribute('href');
+          if (!href || !href.startsWith('/')) return false; // 仅同源应用内链接
+          if (href.startsWith('//')) return false;
+          if (/\.(html|css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|xml|json|txt|pdf|zip|map)([?#]|$)/i.test(href)) return false;
+          if (href === '/logout' || href.indexOf('logout') !== -1) return false;
+          if (el.closest && el.closest('[data-no-prefetch]')) return false;
+          return true;
+        }
+        function prefetch(url) {
+          if (!ENABLED) return Promise.resolve(undefined);
+          var pending = inFlight(url);
+          if (pending) return pending;
+          pending = fetch(url, { credentials: 'same-origin', headers: { 'X-Prefetch': '1' } })
+            .then(function (r) { return r.ok ? r.text() : undefined; })
+            .catch(function () { return undefined; });
+          return mark(url, pending);
+        }
+        function onOver(event) {
+          var a = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+          if (a && canPrefetch(a)) prefetch(a.href);
+        }
+        document.addEventListener('mouseover', onOver, { passive: true });
+        document.addEventListener('focusin', onOver, { passive: true });
+        document.addEventListener('touchstart', onOver, { passive: true });
+        // 测试/控制钩子
+        window.__prefetch = {
+          canPrefetch: canPrefetch,
+          prefetch: prefetch,
+          cache: CACHE,
+          set enabled(v) { ENABLED = !!v; },
+          get enabled() { return ENABLED; },
+        };
+      })();
+    </script>
+    <script is:inline>
+      // PWA：注册 Service Worker（可安装 + 基本离线兜底）。
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
+    <script is:inline>
+      // 悬停预取启动脚本：按全局设置 enable_link_prefetch 决定是否启用
+      // （对齐上游 head.html：仅当设置不为 true 时输出 turbo-prefetch=false）。
+      // 本项目当前全局设置默认值即 true，因此默认启用；设置关闭后下次访问起不预取。
+      fetch('/api/v1/global-settings', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (g) {
+          window.__prefetch.enabled = !(g && g.enable_link_prefetch === false);
+        })
+        .catch(function () { /* 拉取失败保持默认启用 */ });
+    </script>
+  </head>
+  <body>
+    {!bare && !publicHeader && (
+    <header class={`container${authHeader ? ' auth-header-full' : ''}`}>
+      <div class="d-flex justify-between">
+        <a href="/bookmarks" class="app-link d-flex align-center">
+          <img class="app-logo" src="/logo.png" alt="logo" />
+          <span class="app-name">LINKLIST</span>
+        </a>
+        <nav>
+          <div class="hide-md nav-desktop">
+            <a href="/bookmarks/new" class="btn btn-primary mr-2">添加书签</a>
+            <div class="dropdown">
+              <button class="btn btn-link dropdown-toggle" tabindex="0">书签</button>
+              <ul class="menu" role="list" tabindex="-1">
+                <li class="menu-item"><a href="/bookmarks" class="menu-link">未归档</a></li>
+                <li class="menu-item"><a href="/bookmarks/archived" class="menu-link">已归档</a></li>
+                <li class="menu-item" data-sharing-only><a href="/bookmarks/shared" class="menu-link">共享</a></li>
+                <li class="menu-item"><a href="/bookmarks?unread=yes" class="menu-link">未读</a></li>
+                <li class="menu-item"><a href="/bookmarks?q=!untagged" class="menu-link">无标签</a></li>
+              </ul>
+            </div>
+            <div class="dropdown">
+              <button class="btn btn-link dropdown-toggle" tabindex="0">设置</button>
+              <ul class="menu" role="list" tabindex="-1">
+                <li class="menu-item"><a href="/settings/general" class="menu-link">通用设置</a></li>
+                <li class="menu-item"><a href="/settings/integrations" class="menu-link">集成</a></li>
+                <li class="menu-item" data-admin-only><a href="/admin" class="menu-link">管理</a></li>
+              </ul>
+            </div>
+            <button id="logout-btn" class="btn btn-link" type="button">退出登录</button>
+          </div>
+          <div class="show-md nav-mobile">
+            <a href="/bookmarks/new" aria-label="添加书签" class="btn btn-primary">
+              <svg width="24" height="24"><use href="/icons.svg#plus"></use></svg>
+            </a>
+            <div class="dropdown dropdown-right">
+              <button class="btn btn-link dropdown-toggle" aria-label="导航菜单" tabindex="0">
+                <svg width="24" height="24"><use href="/icons.svg#menu"></use></svg>
+              </button>
+              <ul class="menu" role="list" tabindex="-1">
+                <li class="menu-item"><a href="/bookmarks" class="menu-link">书签</a></li>
+                <li class="menu-item"><a href="/bookmarks/archived" class="menu-link">已归档</a></li>
+                <li class="menu-item" data-sharing-only><a href="/bookmarks/shared" class="menu-link">共享</a></li>
+                <li class="menu-item"><a href="/bookmarks?q=!untagged" class="menu-link">无标签</a></li>
+                <li class="divider"></li>
+                <li class="menu-item"><a href="/settings/general" class="menu-link">设置</a></li>
+                <li class="menu-item"><a href="/settings/integrations" class="menu-link">集成</a></li>
+                <li class="menu-item" data-admin-only><a href="/admin" class="menu-link">管理</a></li>
+                <li class="divider"></li>
+                <li class="menu-item"><button id="logout-btn-m" class="btn btn-link menu-link" type="button">退出登录</button></li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+    )}
+    {!bare && publicHeader && (
+    <header class="container">
+      <div class="d-flex justify-between">
+        <a href="/" class="app-link d-flex align-center">
+          <img class="app-logo" src="/logo.png" alt="logo" />
+          <span class="app-name">LINKLIST</span>
+        </a>
+        <nav>
+          <a href="/login" class="btn btn-link">登录</a>
+        </nav>
+      </div>
+    </header>
+    )}
+    {!bare && authHeader && (
+    <header class="container auth-header-anon">
+      <div class="d-flex justify-between">
+        <a href="/" class="app-link d-flex align-center">
+          <img class="app-logo" src="/logo.png" alt="logo" />
+          <span class="app-name">LINKLIST</span>
+        </a>
+        <nav>
+          <a href="/login" class="btn btn-link">登录</a>
+        </nav>
+      </div>
+    </header>
+    )}
+    <div class="content container">
+      <slot />
+    </div>
+    <div class="modals">
+      <slot name="overlays" />
+    </div>
+    <script>
+      async function doLogout() {
+        try { await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
+        window.location.href = '/login';
+      }
+      document.getElementById('logout-btn')?.addEventListener('click', doLogout);
+      document.getElementById('logout-btn-m')?.addEventListener('click', doLogout);
+      // 登录态探测：写 body[data-authed]（authHeader 页面按它切换两套头部；
+      // auth-ready 防止探测完成前闪烁）。
+      const probeAuth = (async () => {
+        let authed = false;
+        try {
+          const s = await fetch('/api/v1/auth/status', { credentials: 'same-origin' });
+          authed = s.ok && (await s.json()).authenticated;
+        } catch {}
+        document.body.dataset.authed = authed ? '1' : '0';
+        document.body.classList.add('auth-ready');
+        return authed;
+      })();
+      // 权限相关元素清理：匿名移除 data-auth-only（如共享页 Manage tags 入口）；
+      // 「管理」入口仅管理员可见（对齐 linkding is_superuser），非管理员移除。
+      // 必须等登录态探测完成，否则读到未写入的 data-authed 造成误删。
+      // 「共享」入口仅 enable_sharing 开启时可见（对齐上游 nav_menu.html 的
+      // {% if request.user_profile.enable_sharing %}），未开启时移除。
+      (async () => {
+        const authed = await probeAuth;
+        let is_admin = false;
+        let sharing_enabled = false;
+        if (authed) {
+          try {
+            const r = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+            if (r.ok) is_admin = !!(await r.json()).is_admin;
+          } catch {}
+          try {
+            const p = await fetch('/api/v1/profile', { credentials: 'same-origin' });
+            if (p.ok) sharing_enabled = (await p.json()).enable_sharing === true;
+          } catch {}
+        }
+        if (!authed) document.querySelectorAll('[data-auth-only]').forEach((el) => el.remove());
+        if (!is_admin) document.querySelectorAll('[data-admin-only]').forEach((el) => el.remove());
+        if (!sharing_enabled) document.querySelectorAll('[data-sharing-only]').forEach((el) => el.remove());
+      })();
+    </script>
+  </body>
+</html>

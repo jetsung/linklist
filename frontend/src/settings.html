@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>设置 · LinkList</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>修改口令</h1>
+      <form id="pw-form">
+        <label>当前口令</label><input id="cur" type="password" required style="width:100%">
+        <label>新口令（至少 8 位）</label><input id="new" type="password" required style="width:100%">
+        <div id="pw-msg"></div>
+        <button class="btn primary" type="submit" style="margin-top:10px">更新口令</button>
+      </form>
+    </div>
+    <div class="card">
+      <h1>API Token</h1>
+      <form id="token-form" class="row">
+        <input id="token-name" placeholder="名称">
+        <button class="btn" type="submit">创建 Token</button>
+      </form>
+      <div id="token-msg" class="ok-text"></div>
+      <div id="tokens"></div>
+    </div>
+    <div class="card">
+      <h1>显示偏好</h1>
+      <form id="pref-form">
+        <label>主题</label>
+        <select id="theme">
+          <option value="auto">自动</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+        <label>每页条数（10-200）</label><input id="per-page" type="number" min="10" max="200" value="30">
+        <label class="row"><input type="checkbox" id="favicons"> 显示网站图标</label>
+        <label class="row"><input type="checkbox" id="previews"> 显示预览图</label>
+        <label class="row"><input type="checkbox" id="autosnap"> 自动快照</label>
+        <label class="row"><input type="checkbox" id="pubshare"> 公开共享我的共享书签</label>
+        <label>自定义 CSS</label><textarea id="custom-css" rows="3" style="width:100%"></textarea>
+        <div id="pref-msg"></div>
+        <button class="btn primary" type="submit" style="margin-top:10px">保存偏好</button>
+      </form>
+    </div>
+  </div>
+  <script type="module" src="/assets/settings.js"></script>
+</body>
+</html>

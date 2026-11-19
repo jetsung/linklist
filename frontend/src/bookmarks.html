@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>书签 · LinkList</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="spread">
+        <h1>我的书签</h1>
+        <button class="btn primary" id="new-btn">+ 新建书签</button>
+      </div>
+      <form id="search-form" class="row">
+        <input id="q" placeholder="搜索：关键词或表达式（tag:rust unread）" style="flex:1;min-width:220px">
+        <select id="filter">
+          <option value="">全部</option>
+          <option value="unread">未读</option>
+          <option value="archived">归档</option>
+          <option value="all">所有状态</option>
+        </select>
+        <button class="btn" type="submit">搜索</button>
+      </form>
+      <div id="tags"></div>
+      <div id="bulk-bar" class="row" style="display:none;margin:8px 0">
+        <span class="muted">已选 <b id="sel-count">0</b> 项：</span>
+        <input id="bulk-tags" placeholder="标签（逗号分隔）" style="width:180px">
+        <button class="btn sm" id="bulk-add">加标签</button>
+        <button class="btn sm" id="bulk-remove">去标签</button>
+        <button class="btn sm" id="bulk-read">标已读</button>
+        <button class="btn sm" id="bulk-unread">标未读</button>
+        <button class="btn sm danger" id="bulk-delete">删除</button>
+      </div>
+      <div id="list"></div>
+      <div id="pager"></div>
+    </div>
+  </div>
+  <dialog id="new-dialog">
+    <div class="card" style="margin:0">
+      <h2>新建书签</h2>
+      <form id="new-form">
+        <label>URL</label><input id="n-url" required style="width:100%">
+        <label>标题（留空自动抓取）</label><input id="n-title" style="width:100%">
+        <label>描述</label><textarea id="n-desc" rows="2" style="width:100%"></textarea>
+        <label>标签（逗号分隔）</label><input id="n-tags" style="width:100%">
+        <label class="row"><input type="checkbox" id="n-shared"> 共享</label>
+        <div id="n-msg" class="error-text"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" type="submit">创建</button>
+          <button class="btn" type="button" id="n-cancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  <script type="module" src="/assets/bookmarks.js"></script>
+</body>
+</html>

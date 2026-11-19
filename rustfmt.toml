@@ -1,0 +1,8 @@
+# Google Rust 风格指南推荐的 rustfmt 配置
+# https://google.github.io/styleguide/rustguide.html#code-formatting-and-aesthetics
+max_width = 100
+hex_literal_case = "Lower"
+# prek.toml 的 mixed-line-ending 钩子依赖此设置（统一 LF）
+newline_style = "Unix"
+# 注：指南还推荐 format_macro_matchers = true，但该选项仅在 nightly 可用，
+# 与「不用不稳定特性」冲突，故未启用。

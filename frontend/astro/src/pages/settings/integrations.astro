@@ -1,0 +1,262 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="集成">
+  <main class="settings-page" aria-labelledby="main-heading">
+    <h1 id="main-heading">集成</h1>
+
+    <section aria-labelledby="browser-extension-heading">
+      <h2 id="browser-extension-heading">浏览器扩展</h2>
+      <p>
+        浏览器扩展让你无需离开当前页面即可快速添加新书签。扩展已在以下官方应用商店上架：
+      </p>
+      <ul>
+        <li>
+          <a href="https://addons.mozilla.org/firefox/addon/linkding-extension/" target="_blank">Firefox</a>
+        </li>
+        <li>
+          <a href="https://chromewebstore.google.com/detail/linkding-extension/beakmhbijpdhipnjhnclmhgjlddhidpe" target="_blank">Chrome</a>
+        </li>
+      </ul>
+      <p>
+        扩展本身也是<a href="https://github.com/sissbruecker/linkding-extension" target="_blank">开源的</a>，
+        你可以自行构建并手动加载到任何支持 Chrome 扩展的浏览器中。
+      </p>
+
+      <h2>Bookmarklet</h2>
+      <p>
+        Bookmarklet 是另一种跨浏览器的快捷方式，无需先打开本应用即可快速添加新书签。使用方法：
+      </p>
+      <ul>
+        <li>
+          在下方选择你偏好的标题与描述检测方式
+          （<a href="https://linkding.link/troubleshooting/#automatically-detected-title-and-description-are-incorrect" target="_blank">帮助</a>）
+        </li>
+        <li>将下方的 Bookmarklet 拖到浏览器的书签栏 / 工具栏</li>
+        <li>打开你想收藏的网站</li>
+        <li>点击浏览器工具栏中的 Bookmarklet</li>
+        <li>本应用会在新窗口或新标签页中打开，并为该网站添加书签</li>
+        <li>保存书签后窗口会自动关闭，你将回到原来的网站</li>
+      </ul>
+      <div class="form-group radio-group" role="radiogroup" aria-labelledby="detection-method-label">
+        <p id="detection-method-label">选择你偏好的 Bookmarklet：</p>
+        <label for="detection-method-server" class="form-radio">
+          <input id="detection-method-server" type="radio" name="bookmarklet-type" value="server" checked />
+          <i class="form-icon"></i>
+          在服务器端检测标题和描述
+        </label>
+        <label for="detection-method-client" class="form-radio">
+          <input id="detection-method-client" type="radio" name="bookmarklet-type" value="client" />
+          <i class="form-icon"></i>
+          在浏览器端检测标题和描述
+        </label>
+      </div>
+      <div class="bookmarklet-container">
+        <a id="bookmarklet-server" href="#" data-turbo="false" class="btn btn-primary">📎 添加书签</a>
+        <a id="bookmarklet-client" href="#" data-turbo="false" class="btn btn-primary" style="display: none">📎 添加书签</a>
+      </div>
+    </section>
+
+    <section aria-labelledby="rest-api-heading">
+      <h2 id="rest-api-heading">REST API</h2>
+      <div id="new-token-box" class="mt-4 mb-6" style="display:none">
+        <p class="mb-2"><strong>请立即复制此 Token，它只会显示一次：</strong></p>
+        <div class="input-group">
+          <input class="form-input" value="" readonly id="new-token-key" />
+          <button id="copy-new-token-key" class="btn input-group-btn" type="button">复制</button>
+        </div>
+      </div>
+      <p>
+        API Token 用于第三方应用访问 REST API。<strong>请像对待密码一样保管 Token。</strong>
+        任何持有 Token 的人都可以访问和管理你的全部书签。
+      </p>
+      <table class="table crud-table mb-6" id="token-table" style="display:none">
+        <thead>
+          <tr><th>名称</th><th>创建时间</th><th class="actions"><span class="text-assistive">操作</span></th></tr>
+        </thead>
+        <tbody id="token-rows"></tbody>
+      </table>
+      <div class="form-group">
+        <button class="btn btn-primary" id="create-token" type="button">创建 API Token</button>
+      </div>
+      <div id="token-modal" class="modal">
+        <div class="modal-overlay" data-close-modal></div>
+        <div class="modal-container" role="dialog" aria-modal="true">
+          <div class="modal-header d-flex justify-between align-center">
+            <h2 class="modal-title">创建 API Token</h2>
+            <button class="btn btn-clear" data-close-modal aria-label="关闭">
+              <svg width="20" height="20"><use href="/icons.svg#close"></use></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label" for="token-name">Token name</label>
+              <input type="text" class="form-input" id="token-name" name="name" placeholder="例如：浏览器扩展、移动应用" value="API Token" maxlength="128" />
+              <p class="form-input-hint">用一个描述性名称来标识 Token 的用途</p>
+            </div>
+          </div>
+          <div class="modal-footer d-flex justify-between">
+            <button type="button" class="btn btn-wide" data-close-modal>取消</button>
+            <button type="button" class="btn btn-primary" id="token-modal-create">创建 Token</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="rss-feeds-heading">
+      <h2 id="rss-feeds-heading">RSS 订阅源</h2>
+      <p>以下 URL 提供书签的 RSS 订阅：</p>
+      <ul style="list-style-position: outside;">
+        <li><a id="feed-all" target="_blank" href="#">全部书签</a></li>
+        <li><a id="feed-unread" target="_blank" href="#">未读书签</a></li>
+        <li><a id="feed-shared" target="_blank" href="#">共享书签</a></li>
+        <li>
+          <a id="feed-public" target="_blank" href="#">公开共享书签</a>
+          <br />
+          <span class="text-small text-secondary">公开共享源不含认证信息，可分享给他人；仅显示已开启公开共享用户的共享书签。</span>
+        </li>
+      </ul>
+      <p>订阅源 URL 支持以下参数：</p>
+      <ul style="list-style-position: outside;">
+        <li><code>limit</code>：最多返回条数，默认最近 100 条。</li>
+        <li><code>q</code>：搜索词。在书签页搜索后从 URL 复制即可获得示例。</li>
+        <li><code>unread</code>：<code>yes</code> / <code>no</code> 过滤已读未读。</li>
+        <li><code>shared</code>：<code>yes</code> / <code>no</code> 过滤共享状态。</li>
+        <li><code>user</code>：按用户名过滤书签，仅对共享书签订阅源生效。</li>
+      </ul>
+      <p>
+        <strong>注意：这些 URL 包含认证 Token，请像密码一样保管。</strong>
+        持有这些 URL 的人可以读取你的全部书签。若怀疑泄露，可在管理面板删除 Feed Token，删除后重新加载此页面即会生成新 URL。
+      </p>
+      <div class="form-group">
+        <button class="btn" id="regen-feed" type="button">重新生成 Feed Key</button>
+      </div>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  import { get, post, del } from '../../scripts/api';
+  import { toastSuccess, toastError } from '../../scripts/toast';
+  import { confirmDialog } from '../../scripts/confirm';
+
+  const fmtDate = (s: string) => (s ? s.replace('T', ' ').slice(0, 16) : '');
+
+  // ---- Bookmarklet（对齐原版 bookmarklet.js / bookmarklet_clientside.js）----
+  function initBookmarklet() {
+    const base = `${window.location.origin}/bookmarks/new`;
+    // 服务端检测：仅传 url + auto_close。
+    const serverJs = `(function(){const u='${base}?url='+encodeURIComponent(window.location)+'&auto_close';window.open(u);})();`;
+    // 浏览器端检测：附带 og:title / meta description。
+    const clientJs = `(function(){const t=document.querySelector('title')?.textContent||document.querySelector("meta[property='og:title']")?.getAttribute('content')||'';const d=document.querySelector("meta[name='description']")?.getAttribute('content')||document.querySelector("meta[property='og:description']")?.getAttribute('content')||'';const u='${base}?url='+encodeURIComponent(window.location)+'&title='+encodeURIComponent(t)+'&description='+encodeURIComponent(d)+'&auto_close';window.open(u);})();`;
+    const server = document.getElementById('bookmarklet-server') as HTMLAnchorElement | null;
+    const client = document.getElementById('bookmarklet-client') as HTMLAnchorElement | null;
+    if (server) server.href = `javascript:${serverJs}`;
+    if (client) client.href = `javascript:${clientJs}`;
+
+    const radios = document.querySelectorAll<HTMLInputElement>('input[name="bookmarklet-type"]');
+    const toggle = () => {
+      const checked = document.querySelector<HTMLInputElement>('input[name="bookmarklet-type"]:checked');
+      const isServer = checked?.value === 'server';
+      if (server) server.style.display = isServer ? 'inline-block' : 'none';
+      if (client) client.style.display = isServer ? 'none' : 'inline-block';
+    };
+    toggle();
+    radios.forEach((r) => r.addEventListener('change', toggle));
+  }
+  initBookmarklet();
+
+  // ---- API Tokens ----
+  async function loadTokens() {
+    const table = document.getElementById('token-table') as HTMLElement;
+    const rows = document.getElementById('token-rows') as HTMLElement;
+    rows.replaceChildren();
+    try {
+      const d = await get('/api/v1/auth/tokens');
+      const tokens = d.tokens || d.results || [];
+      table.style.display = tokens.length ? 'table' : 'none';
+      for (const t of tokens) {
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td'); tdName.textContent = t.name || `Token ${t.id}`;
+        const tdDate = document.createElement('td'); tdDate.textContent = fmtDate(t.created_at || t.created || '');
+        const tdAct = document.createElement('td'); tdAct.className = 'actions';
+        const btn = document.createElement('button'); btn.className = 'btn btn-link'; btn.textContent = '删除';
+        btn.addEventListener('click', async () => {
+          if (!(await confirmDialog('删除该 Token？'))) return;
+          await del(`/api/v1/auth/tokens/${t.id}`);
+          toastSuccess('Token 已删除', { blocking: true });
+          loadTokens();
+        });
+        tdAct.append(btn); tr.append(tdName, tdDate, tdAct); rows.append(tr);
+      }
+    } catch (e: unknown) {
+      const status = e instanceof Error && 'status' in e && typeof e.status === 'number' ? e.status : undefined;
+      if (status === 401) window.location.href = '/login';
+    }
+  }
+  loadTokens();
+
+  const modal = document.getElementById('token-modal') as HTMLElement;
+  const nameInput = document.getElementById('token-name') as HTMLInputElement;
+  const showModal = () => { nameInput.value = 'API Token'; modal.classList.add('active'); nameInput.focus(); };
+  const hideModal = () => modal.classList.remove('active');
+  document.getElementById('create-token')?.addEventListener('click', showModal);
+  modal.querySelectorAll('[data-close-modal]').forEach((el) => el.addEventListener('click', hideModal));
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLSelectElement)) hideModal();
+  });
+
+  document.getElementById('token-modal-create')?.addEventListener('click', async () => {
+    const name = (document.getElementById('token-name') as HTMLInputElement).value.trim() || 'API Token';
+    try {
+      const d = await post('/api/v1/auth/tokens', { name });
+      const key = d.token || d.secret || d.key || '';
+      const box = document.getElementById('new-token-box') as HTMLElement;
+      (document.getElementById('new-token-key') as HTMLInputElement).value = key;
+      box.style.display = 'block';
+      hideModal();
+      toastSuccess(`API Token “${name}” 创建成功`, { blocking: true });
+      loadTokens();
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '创建失败', { blocking: true });
+    }
+  });
+
+  document.getElementById('copy-new-token-key')?.addEventListener('click', () => {
+    const v = (document.getElementById('new-token-key') as HTMLInputElement).value;
+    navigator.clipboard.writeText(v).then(() => {
+      const b = document.getElementById('copy-new-token-key') as HTMLElement;
+      b.textContent = '已复制！';
+      setTimeout(() => { b.textContent = '复制'; }, 2000);
+    });
+  });
+
+  // ---- RSS Feeds ----
+  function setFeedUrls(key: string) {
+    const base = window.location.origin;
+    (document.getElementById('feed-all') as HTMLAnchorElement).href = `${base}/feeds/${key}/all`;
+    (document.getElementById('feed-unread') as HTMLAnchorElement).href = `${base}/feeds/${key}/unread`;
+    (document.getElementById('feed-shared') as HTMLAnchorElement).href = `${base}/feeds/${key}/shared`;
+    (document.getElementById('feed-public') as HTMLAnchorElement).href = `${base}/feeds/shared`;
+  }
+  async function loadFeeds() {
+    try {
+      const d = await post('/api/v1/profile/feed-key', {});
+      setFeedUrls(d.key);
+    } catch (e: unknown) {
+      const status = e instanceof Error && 'status' in e && typeof e.status === 'number' ? e.status : undefined;
+      if (status === 401) window.location.href = '/login';
+    }
+  }
+  loadFeeds();
+
+  document.getElementById('regen-feed')?.addEventListener('click', async () => {
+    try {
+      const d = await post('/api/v1/profile/feed-key/regenerate', {});
+      setFeedUrls(d.key);
+      toastSuccess('Feed Key 已重新生成', { blocking: true });
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : '操作失败', { blocking: true });
+    }
+  });
+</script>

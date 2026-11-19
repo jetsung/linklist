@@ -1,0 +1,31 @@
+/* linklist 管理后台全局样式：完整沿用 linkding 主题。 */
+@import './theme/variables.css';
+@import './theme/base.css';
+@import './theme/typography.css';
+@import './theme/buttons.css';
+@import './theme/forms.css';
+@import './theme/dropdowns.css';
+@import './theme/menus.css';
+@import './theme/modals.css';
+@import './theme/pagination.css';
+@import './theme/animations.css';
+@import './theme/utilities.css';
+@import './theme/tables.css';
+@import './responsive.css';
+@import './layout.css';
+@import './components.css';
+@import './bookmark-page.css';
+@import './bookmark-form.css';
+@import './auth.css';
+@import './tags.css';
+@import './bookmark-details.css';
+@import './settings.css';
+@import './crud.css';
+
+/* authHeader 页面（/bookmarks/shared 等）：按登录态切换两套头部。
+   静态构建无法按请求渲染，客户端探测 /api/v1/auth/status 后写 body[data-authed]。
+   auth-ready 防止闪烁：探测完成前两套头部都不显示。 */
+body.auth-ready:not([data-authed='1']) .auth-header-full { display: none; }
+body.auth-ready[data-authed='1'] .auth-header-anon { display: none; }
+body:not(.auth-ready) .auth-header-full,
+body:not(.auth-ready) .auth-header-anon { visibility: hidden; }

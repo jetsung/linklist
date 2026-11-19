@@ -1,0 +1,102 @@
+# zensical 文档站点配置：https://zensical.org/docs/
+#
+# 文档源就是仓库里的 docs/（zensical 默认 docs_dir 即 docs），构建产物输出到
+# site/（已在 .gitignore 中忽略）。
+
+[project]
+site_name = "LinkList"
+site_description = "自托管的单二进制书签管理服务：linkding 的 Rust 重写版，支持 SQLite/PostgreSQL/MySQL 三种数据库"
+repo_url = "https://github.com/jetsung/linklist"
+repo_name = "jetsung/linklist"
+edit_uri = "edit/dev/docs/"
+copyright = "Copyright &copy;  Jetsung Chan"
+language = "zh"
+
+# 自定义 CSS：拓宽正文列（默认 .md-grid 限 61rem，见 docs/stylesheets/extra.css）。
+extra_css = ["stylesheets/extra.css"]
+
+# 章节顺序即左侧导航顺序，与 docs/ 下的序号一致。
+# 顺序：入门 → 配置/部署/运维 → 日常使用 → API 对接 → 开发 → 背景参考。
+nav = [
+  { "首页" = "index.md" },
+  { "快速开始" = "01-getting-started.md" },
+  { "配置参考" = "02-configuration.md" },
+  { "数据库" = "03-database.md" },
+  { "Docker 部署" = "04-docker.md" },
+  { "备份与恢复" = "05-backup-restore.md" },
+  { "功能使用" = "06-features.md" },
+  { "OIDC 单点登录" = "07-oidc.md" },
+  { "REST API" = "08-api.md" },
+  { "本地开发" = "09-development.md" },
+  { "上游对齐" = "10-linkding-alignment.md" },
+]
+
+[project.theme]
+language = "zh"
+features = [
+  "announce.dismiss",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "切换到浅色模式"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "切换到深色模式"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "切换到跟随系统"
+
+# 与 zensical 模板保持一致的一组扩展：代码高亮/复制、提示块、脚注、表格、
+# Mermaid 围栏等。
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}

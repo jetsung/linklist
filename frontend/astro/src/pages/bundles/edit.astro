@@ -1,0 +1,304 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="编辑组合">
+  <div class="bundles-editor-page grid columns-md-1">
+    <main aria-labelledby="main-heading">
+      <div class="section-header">
+        <h1 id="main-heading">编辑组合</h1>
+      </div>
+      <form id="bundle-form" autocomplete="off" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="bundle-name">名称</label>
+          <input id="bundle-name" class="form-input" maxlength="256" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-q">搜索词</label>
+          <input id="bundle-q" class="form-input" maxlength="256" aria-describedby="bundle-q-help" />
+          <div id="bundle-q-help" class="form-input-hint">所有搜索词都必须出现在书签中才算匹配。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-any-tags">标签</label>
+          <input id="bundle-any-tags" class="form-input" aria-describedby="bundle-any-tags-help" />
+          <div id="bundle-any-tags-help" class="form-input-hint">命中其中任意一个标签即匹配。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-all-tags">必选标签</label>
+          <input id="bundle-all-tags" class="form-input" aria-describedby="bundle-all-tags-help" />
+          <div id="bundle-all-tags-help" class="form-input-hint">所有这些标签都必须存在才匹配。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-excluded-tags">排除标签</label>
+          <input id="bundle-excluded-tags" class="form-input" aria-describedby="bundle-excluded-tags-help" />
+          <div id="bundle-excluded-tags-help" class="form-input-hint">命中其中任意一个标签即不匹配。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-filter-unread">阅读状态</label>
+          <select id="bundle-filter-unread" class="form-select" aria-describedby="bundle-filter-unread-help">
+            <option value="off" selected>全部</option>
+            <option value="yes">未读</option>
+            <option value="no">已读</option>
+          </select>
+          <div id="bundle-filter-unread-help" class="form-input-hint">限定匹配未读或已读书签。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bundle-filter-shared">共享状态</label>
+          <select id="bundle-filter-shared" class="form-select" aria-describedby="bundle-filter-shared-help">
+            <option value="off" selected>全部</option>
+            <option value="yes">已共享</option>
+            <option value="no">未共享</option>
+          </select>
+          <div id="bundle-filter-shared-help" class="form-input-hint">限定匹配已共享或未共享书签。</div>
+        </div>
+        <div class="form-footer d-flex mt-4">
+          <button id="bundle-save" class="btn btn-primary btn-wide" type="button">保存</button>
+          <a href="/bundles" class="btn btn-wide ml-auto">取消</a>
+        </div>
+      </form>
+    </main>
+    <aside class="col-2" aria-labelledby="preview-heading">
+      <div class="section-header">
+        <h2 id="preview-heading">Preview</h2>
+      </div>
+      <div id="bundle-preview"></div>
+    </aside>
+  </div>
+</Layout>
+
+<script>
+  import { get, patch } from '../../scripts/api';
+  import { toastError, queueToast } from '../../scripts/toast';
+
+  interface Bookmark {
+    id: number; url: string; title: string | null; description?: string | null;
+    is_unread?: number | boolean; is_shared?: number | boolean; created_at?: string;
+    tags?: string[];
+  }
+
+  // 路径形如 /bundles/{id}/edit；无 id 回列表页。
+  const match = window.location.pathname.match(/\/bundles\/(\d+)\/edit/);
+  const bundleId = match ? Number(match[1]) : null;
+  if (!bundleId) window.location.href = '/bundles';
+
+  const DEBOUNCE_MS = 500;
+  const form = document.getElementById('bundle-form') as HTMLFormElement;
+  const previewBox = document.getElementById('bundle-preview') as HTMLDivElement;
+
+  let perPage = 30;
+  let page = 1;
+  let dateDisplay: 'relative' | 'absolute' = 'absolute';
+
+  function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string): HTMLElementTagNameMap[K] {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  function host(url: string): string { try { return new URL(url).host; } catch { return ''; } }
+
+  // 绝对日期显示（对齐 user_profile.bookmark_date_display=absolute）。
+  function fmtDate(s?: string): string {
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s.slice(0, 10);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function fail(msg: string) { toastError(msg, { blocking: true }); }
+
+  // ---- 预览渲染（对齐 linkding bundles/preview.html：计数 + 列表 + 分页）----
+  function renderPreview(total: number, items: Bookmark[]) {
+    previewBox.replaceChildren();
+    if (!total) {
+      previewBox.append(Object.assign(el('div'), { textContent: '没有书签匹配当前组合。' }));
+      return;
+    }
+    const count = el('div', 'mb-4');
+    count.textContent = `找到 ${total} 个匹配此组合的书签。`;
+    previewBox.append(count);
+
+    const ul = el('ul', 'bookmark-list');
+    for (const b of items) {
+      const li = el('li');
+      li.dataset.bookmarkId = String(b.id);
+      if (b.is_unread) li.classList.add('unread');
+      const content = el('div', 'content');
+
+      const titleDiv = el('div', 'title');
+      const fav = document.createElement('img');
+      fav.className = 'favicon';
+      fav.src = `/favicon/${host(b.url)}`;
+      fav.alt = '';
+      fav.addEventListener('error', () => fav.remove());
+      const a = document.createElement('a');
+      a.href = b.url; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = b.title || b.url;
+      titleDiv.append(fav, a);
+      content.append(titleDiv);
+
+      const urlDiv = el('div', 'url-path truncate');
+      const ua = document.createElement('a');
+      ua.href = b.url; ua.target = '_blank'; ua.rel = 'noopener'; ua.className = 'url-display';
+      ua.textContent = b.url;
+      urlDiv.append(ua);
+      content.append(urlDiv);
+
+      if (b.tags?.length) {
+        const tags = el('div', 'tags');
+        for (const t of b.tags) {
+          const ta = document.createElement('a');
+          ta.textContent = t;
+          ta.href = `/bookmarks?q=${encodeURIComponent('#' + t)}`;
+          tags.append(ta);
+        }
+        content.append(tags);
+      }
+      li.append(content);
+
+      // 预览模式 actions 仅日期（对齐 linkding is_preview）。
+      const actions = el('div', 'actions');
+      actions.append(Object.assign(el('span'), { textContent: fmtDate(b.created_at) }));
+      li.append(actions);
+      ul.append(li);
+    }
+    previewBox.append(ul);
+
+    // 分页。
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    if (totalPages > 1) {
+      const wrap = el('div', 'bookmark-pagination');
+      const pag = el('ul', 'pagination');
+      const mk = (cls: string, label: string, target: number | null) => {
+        const li = el('li', cls);
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = label;
+        if (target === null) { link.setAttribute('tabindex', '-1'); }
+        else link.addEventListener('click', (e) => { e.preventDefault(); page = target; refreshPreview(); });
+        li.append(link);
+        return li;
+      };
+      // 可见页算法对齐 linkding get_visible_page_numbers（相邻 2 页 + 首末页，空洞渲染省略号）。
+      const nums = new Set<number>();
+      for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) nums.add(p);
+      nums.add(1); nums.add(totalPages);
+      const sorted = [...nums].sort((a, b) => a - b);
+      const visible: (number | -1)[] = [];
+      for (const p of sorted) {
+        if (visible.length > 0 && visible[visible.length - 1] < p - 1) visible.push(-1);
+        visible.push(p);
+      }
+      for (const p of visible) {
+        if (p === -1) {
+          const gap = el('li', 'page-item');
+          gap.append(Object.assign(document.createElement('span'), { textContent: '...' }));
+          pag.append(gap);
+        } else {
+          pag.append(p === page ? mk('page-item active', String(p), null) : mk('page-item', String(p), p));
+        }
+      }
+      wrap.append(pag);
+      previewBox.append(wrap);
+    }
+  }
+
+  // ---- 拉取预览（表单字段 → /api/v1/bundles/preview GET 参数）----
+  function previewParams(): string {
+    const params = new URLSearchParams();
+    const q = (document.getElementById('bundle-q') as HTMLInputElement).value.trim();
+    const anyTags = (document.getElementById('bundle-any-tags') as HTMLInputElement).value.trim();
+    const allTags = (document.getElementById('bundle-all-tags') as HTMLInputElement).value.trim();
+    const excluded = (document.getElementById('bundle-excluded-tags') as HTMLInputElement).value.trim();
+    const unread = (document.getElementById('bundle-filter-unread') as HTMLSelectElement).value;
+    const shared = (document.getElementById('bundle-filter-shared') as HTMLSelectElement).value;
+    if (q) params.set('search', q);
+    if (anyTags) params.set('any_tags', anyTags);
+    if (allTags) params.set('all_tags', allTags);
+    if (excluded) params.set('excluded_tags', excluded);
+    if (unread !== 'off') params.set('filter_unread', unread);
+    if (shared !== 'off') params.set('filter_shared', shared);
+    params.set('page', String(page));
+    params.set('per_page', String(perPage));
+    return params.toString();
+  }
+
+  async function refreshPreview() {
+    try {
+      const data = await get(`/api/v1/bundles/preview?${previewParams()}`);
+      perPage = data.per_page || perPage;
+      renderPreview(data.total || 0, (data.results || []) as Bookmark[]);
+    } catch (e: any) {
+      if (e?.status === 401) window.location.href = '/login';
+      else previewBox.replaceChildren(Object.assign(el('div'), { textContent: '预览加载失败。' }));
+    }
+  }
+
+  // 表单输入 500ms 防抖刷新预览（对齐 bundles/form.html scheduleUpdate）。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  form.addEventListener('input', () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { page = 1; refreshPreview(); }, DEBOUNCE_MS);
+  });
+
+  // ---- 回填 + 保存 ----
+  function filterToState(v?: string): string { return v === 'unread' ? 'yes' : v === 'read' ? 'no' : 'off'; }
+  function sharedToState(v?: boolean): string { return v === true ? 'yes' : v === false ? 'no' : 'off'; }
+
+  (async () => {
+    try {
+      const [b, profile] = await Promise.all([
+        get(`/api/v1/bundles/${bundleId}`),
+        get('/api/v1/profile').catch(() => null),
+      ]);
+      if (profile && Number.isFinite(Number(profile.items_per_page))) {
+        const n = Number(profile.items_per_page);
+        if (n >= 1 && n <= 200) perPage = n;
+      }
+      const search = JSON.parse(b.search_json || '{}') as {
+        q?: string; tags_and?: string[]; tags_or?: string[]; tags_not?: string[]; filter?: string; shared?: boolean;
+      };
+      (document.getElementById('bundle-name') as HTMLInputElement).value = b.name || '';
+      (document.getElementById('bundle-q') as HTMLInputElement).value = search.q ?? '';
+      (document.getElementById('bundle-any-tags') as HTMLInputElement).value = (search.tags_or ?? []).join(', ');
+      (document.getElementById('bundle-all-tags') as HTMLInputElement).value = (search.tags_and ?? []).join(', ');
+      (document.getElementById('bundle-excluded-tags') as HTMLInputElement).value = (search.tags_not ?? []).join(', ');
+      (document.getElementById('bundle-filter-unread') as HTMLSelectElement).value = filterToState(search.filter);
+      (document.getElementById('bundle-filter-shared') as HTMLSelectElement).value = sharedToState(search.shared);
+      await refreshPreview();
+    } catch (e: any) {
+      if (e?.status === 401) window.location.href = '/login';
+      else if (e?.status === 404) window.location.href = '/bundles';
+      else fail('加载组合失败');
+    }
+  })();
+
+  function parseTags(v: string): string[] {
+    return v.split(/[,，\s]+/).map((s) => s.trim().replace(/^#/, '')).filter(Boolean);
+  }
+
+  document.getElementById('bundle-save')?.addEventListener('click', async () => {
+    const name = (document.getElementById('bundle-name') as HTMLInputElement).value.trim();
+    if (!name) { fail('名称不能为空'); return; }
+    const unread = (document.getElementById('bundle-filter-unread') as HTMLSelectElement).value;
+    const shared = (document.getElementById('bundle-filter-shared') as HTMLSelectElement).value;
+    const search = {
+      q: (document.getElementById('bundle-q') as HTMLInputElement).value.trim() || undefined,
+      tags_or: parseTags((document.getElementById('bundle-any-tags') as HTMLInputElement).value),
+      tags_and: parseTags((document.getElementById('bundle-all-tags') as HTMLInputElement).value),
+      tags_not: parseTags((document.getElementById('bundle-excluded-tags') as HTMLInputElement).value),
+      filter: unread === 'yes' ? 'unread' : unread === 'no' ? 'read' : undefined,
+      shared: shared === 'yes' ? true : shared === 'no' ? false : undefined,
+    };
+    try {
+      await patch(`/api/v1/bundles/${bundleId}`, { name, search_json: search });
+      queueToast('组合已更新');
+      window.location.href = '/bundles';
+    } catch (e: any) {
+      if (e?.status === 401) window.location.href = '/login';
+      else fail(e?.message || '保存失败');
+    }
+  });
+</script>

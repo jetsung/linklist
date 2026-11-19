@@ -1,0 +1,85 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="共享书签" publicHeader>
+  <ld-bookmark-page class="bookmarks-page grid columns-md-1">
+    <main class="main col-2" aria-labelledby="main-heading">
+      <div class="section-header">
+        <h1 id="main-heading">共享书签 <span class="text-gray" id="bookmarks-total"></span></h1>
+        <div class="header-controls">
+          <div class="search-container">
+            <form id="search" role="search">
+              <input id="search-input" name="q" class="form-input" placeholder="搜索：关键词或 #标签" autocomplete="off" />
+            </form>
+            <ld-dropdown class="search-options dropdown dropdown-right">
+              <button type="button" aria-label="搜索选项" class="btn dropdown-toggle">
+                <svg width="20" height="20"><use href="/icons.svg#preferences"></use></svg>
+              </button>
+              <div class="menu" tabindex="0">
+                <div class="form-group">
+                  <label class="form-label" for="sort">排序</label>
+                  <select id="sort" class="form-select select-sm">
+                    <option value="added_desc">添加时间（新→旧）</option>
+                    <option value="added_asc">添加时间（旧→新）</option>
+                    <option value="modified_desc">修改时间（新→旧）</option>
+                    <option value="modified_asc">修改时间（旧→新）</option>
+                    <option value="title_asc">标题（A→Z）</option>
+                    <option value="title_desc">标题（Z→A）</option>
+                  </select>
+                </div>
+                <div class="actions">
+                  <button type="button" class="btn btn-sm btn-primary" id="apply-prefs">应用</button>
+                  <button type="button" class="btn btn-sm" id="save-prefs">保存为默认</button>
+                </div>
+              </div>
+            </ld-dropdown>
+          </div>
+        </div>
+      </div>
+      <div id="bookmark-list-container">
+        <section aria-label="共享书签">
+          <ul id="bookmark-list" class="bookmark-list" role="list" tabindex="-1"></ul>
+          <div class="bookmark-pagination"><ul class="pagination" role="list"></ul></div>
+        </section>
+      </div>
+    </main>
+    <div class="side-panel col-1 hide-md">
+      <section class="side-panel-section" aria-labelledby="shared-user-heading">
+        <div class="section-header no-wrap">
+          <h2 id="shared-user-heading">用户</h2>
+        </div>
+        <div class="form-group">
+          <select id="shared-user-select" class="form-select select-sm" aria-label="按用户筛选"></select>
+        </div>
+      </section>
+      <section aria-labelledby="shared-tags-heading">
+        <div class="section-header no-wrap">
+          <h2 id="shared-tags-heading">标签</h2>
+          <ld-dropdown class="dropdown dropdown-right ml-auto" data-auth-only>
+            <button class="btn btn-noborder dropdown-toggle" aria-label="Tags menu" aria-expanded="false">
+              <svg width="20" height="20">
+                <use href="/icons.svg#menu"></use>
+              </svg>
+            </button>
+            <ul class="menu" role="list" tabindex="-1">
+              <li class="menu-item">
+                <a href="/tags" class="menu-link">Manage tags</a>
+              </li>
+            </ul>
+          </ld-dropdown>
+        </div>
+        <div id="tag-cloud-container">
+          <div id="tag-cloud" class="tag-cloud">
+            <p class="selected-tags"></p>
+            <div class="unselected-tags"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </ld-bookmark-page>
+</Layout>
+
+<script>
+  import { initBookmarksPage } from '../scripts/bookmarks-page';
+  initBookmarksPage('shared');
+</script>
