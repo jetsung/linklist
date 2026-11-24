@@ -13,8 +13,8 @@
 | data_dir | `LINKLIST_DATA_DIR` | `./data` | SQLite 数据库与快照/资产存储目录 |
 | log | `LINKLIST_LOG` | `info` | 日志级别（RUST_LOG 语法） |
 | session_ttl_secs | `LINKLIST_SESSION_TTL` | `604800` | 会话不活动过期（秒） |
+| session_cookie_secure | `LINKLIST_SESSION_COOKIE_SECURE` | `false` | 会话 Cookie 加 Secure 标志（仅经 HTTPS 传输）；HTTPS 部署建议开启 |
 | token_ttl_days | `LINKLIST_TOKEN_TTL` | `0` | API Token 有效期（天，0 = 永久） |
-| admin_password | `LINKLIST_ADMIN_PASSWORD` | 无 | 预置管理员口令（仅库中无用户时生效；Docker 首启与 `init` 共用） |
 | guest_sharing | `LINKLIST_GUEST_SHARING` | `false` | 匿名访客可见公开共享书签 |
 | login_max_failures | `LINKLIST_LOGIN_MAX_FAILURES` | `10` | 登录失败限速阈值 |
 | login_window_secs | `LINKLIST_LOGIN_WINDOW` | `300` | 限速窗口（秒） |

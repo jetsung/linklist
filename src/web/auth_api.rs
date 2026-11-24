@@ -121,21 +121,10 @@ pub async fn setup(
     if models::last_user_count(&state.pool).await? > 0 {
         return Err(AppError::Conflict("系统已初始化，不可重复 setup".into()));
     }
-    // 预置管理员口令优先（config.admin_password）。
-    let effective_password = state
-        .config
-        .admin_password
-        .as_deref()
-        .unwrap_or(&req.password);
+    // 首个账号即超级用户；口令以用户提交为准，服务端不做任何预置覆盖。
+    // SETUP 审计由 create_user_auto_admin 写入。
     let user =
-        models::create_user(&state.pool, req.username.trim(), effective_password, true).await?;
-    audit(
-        &state.pool,
-        Some(user.id),
-        audit_action::SETUP,
-        &user.username,
-    )
-    .await;
+        models::create_user_auto_admin(&state.pool, req.username.trim(), &req.password).await?;
     session
         .insert(SESSION_USER_KEY, user.id)
         .await
@@ -338,7 +327,7 @@ pub(crate) mod integration {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
-    use tower_sessions::{MemoryStore, SessionManagerLayer};
+    use tower_sessions::MemoryStore;
 
     pub async fn build_app() -> axum::Router {
         build_app_with_queue(None).await.0
@@ -360,7 +349,8 @@ pub(crate) mod integration {
             task_queue: queue.clone(),
         };
         let session_store = MemoryStore::default();
-        let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
+        // 复用生产的会话层配置（SameSite=Lax 等），保证测试与线上行为一致。
+        let session_layer = crate::build_session_layer(session_store, 604800, false);
         (
             crate::web::api_router(state).layer(session_layer),
             pool,
@@ -381,7 +371,8 @@ pub(crate) mod integration {
             task_queue: queue,
         };
         let session_store = MemoryStore::default();
-        let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
+        // 复用生产的会话层配置（SameSite=Lax 等），保证测试与线上行为一致。
+        let session_layer = crate::build_session_layer(session_store, 604800, false);
         crate::web::api_router(state).layer(session_layer)
     }
 
@@ -489,6 +480,22 @@ pub(crate) mod integration {
         set_cookie
             .as_ref()
             .map(|c| c.split(';').next().unwrap_or("").to_string())
+    }
+
+    #[tokio::test]
+    async fn session_cookie_uses_samesite_lax() {
+        // OIDC 授权回跳是自 IdP 发起的跨站顶级导航：会话 Cookie 必须为
+        // SameSite=Lax，否则 Strict 下浏览器不回传 Cookie，OIDC 回调会
+        // 报"state 缺失或已过期"（对齐上游 Django 会话 Cookie 默认 Lax）。
+        let app = build_app().await;
+        let (_, _, set_cookie) = post_json(
+            &app,
+            "/api/v1/auth/setup",
+            r#"{"username":"admin","password":"password123"}"#,
+        )
+        .await;
+        let cookie = set_cookie.expect("setup 应下发会话 Cookie");
+        assert!(cookie.contains("SameSite=Lax"), "set-cookie={cookie}");
     }
 
     #[tokio::test]
@@ -2846,6 +2853,70 @@ pub(crate) mod integration {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["guest_sharing"], "true");
+    }
+
+    #[tokio::test]
+    async fn admin_delete_user_endpoint_guards_and_deletes() {
+        let app = build_app().await;
+        let admin_cookie = login_cookie(&app).await; // setup 创建 admin（id=1，管理员）。
+
+        // 创建普通用户 carol 并登录。
+        let (status, body, _) = post_with_cookie(
+            &app,
+            "/api/v1/admin/users",
+            r#"{"username":"carol","password":"password123"}"#,
+            Some(&admin_cookie),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let carol_id = body["id"].as_i64().unwrap();
+        let (status, _, carol_cookie) = post_json(
+            &app,
+            "/api/v1/auth/login",
+            r#"{"username":"carol","password":"password123"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let carol_cookie = carol_cookie.unwrap();
+
+        let del = |app: &axum::Router, id: i64, cookie: &str| {
+            let app = app.clone();
+            let cookie = cookie.to_string();
+            async move {
+                app.oneshot(
+                    axum::http::Request::builder()
+                        .method("DELETE")
+                        .uri(format!("/api/v1/admin/users/{id}"))
+                        .header("cookie", cookie)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        // 非管理员删除 → 403。
+        let resp = del(&app, carol_id, &carol_cookie).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        // 管理员删除自己 → 400。
+        let resp = del(&app, 1, &admin_cookie).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        // 管理员删除普通用户 → 200，且用户列表中消失。
+        let resp = del(&app, carol_id, &admin_cookie).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let (status, body) = get(&app, "/api/v1/admin/users", Some(&admin_cookie)).await;
+        assert_eq!(status, StatusCode::OK);
+        let names: Vec<String> = body["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|u| u["username"].as_str().unwrap().to_string())
+            .collect();
+        assert!(!names.contains(&"carol".to_string()));
+        // 重复删除 → 404。
+        let resp = del(&app, carol_id, &admin_cookie).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

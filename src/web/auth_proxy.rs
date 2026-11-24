@@ -56,6 +56,7 @@ pub async fn auth_proxy_middleware(
 }
 
 /// 按用户名取用户；不存在则创建（自动建号，对齐上游 RemoteUserMiddleware 行为）。
+/// 首个账号即超级用户：库中无用户时建号自动授管理员。
 pub async fn ensure_user(pool: &DbPool, username: &str) -> Result<models::User, AppError> {
     if let Some(user) = models::find_by_username(pool, username).await? {
         return Ok(user);
@@ -64,7 +65,7 @@ pub async fn ensure_user(pool: &DbPool, username: &str) -> Result<models::User, 
     let mut bytes = [0u8; 16];
     rand::fill(&mut bytes);
     let random_password: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    models::create_user(pool, username, &random_password, false).await
+    models::create_user_auto_admin(pool, username, &random_password).await
 }
 
 /// 将代理用户写入会话（幂等：已登录同一用户则跳过）。
@@ -97,10 +98,16 @@ mod tests {
     #[tokio::test]
     async fn ensure_user_creates_and_reuses() {
         let pool = crate::db::connect_in_memory().await.unwrap();
+        // 空库首用户 → 管理员；重复取同一用户幂等。
         let u1 = ensure_user(&pool, "proxyuser").await.unwrap();
+        assert!(u1.is_admin, "空库首个 SSO 建号用户应为管理员");
         let u2 = ensure_user(&pool, "proxyuser").await.unwrap();
         assert_eq!(u1.id, u2.id);
         assert_eq!(u1.username, "proxyuser");
+        assert!(u2.is_admin);
+        // 已有用户后新建的 SSO 用户 → 普通用户。
+        let u3 = ensure_user(&pool, "plainuser").await.unwrap();
+        assert!(!u3.is_admin, "非首用户应为普通用户");
     }
 
     #[test]

@@ -21,21 +21,21 @@
 pnpm -C frontend/astro build   # 生成 frontend/dist（rust-embed 构建期嵌入）
 cargo build --release
 
-# 2. 初始化项目（生成配置 + 数据目录 + 建库迁移；--admin-password 预置管理员 admin）
+# 2. 初始化项目（生成配置 + 数据目录 + 建库迁移；不预置任何账号）
 ./target/release/linklist init
 
 # 3. 启动（默认 0.0.0.0:9090，数据目录 ./data）
 ./target/release/linklist run
 
-# 4. 打开 http://localhost:9090/login 注册首个用户（自动成为管理员）
+# 4. 打开 http://localhost:9090/login 完成首次初始化/登录（首个账号自动成为超级用户）
 ```
 
 常用命令（完整说明 `linklist help`）：
 
 ```bash
-./target/release/linklist init --admin-password 'password123'   # 初始化并预置管理员
-./target/release/linklist reset-password <username>             # 交互式重置口令
-./target/release/linklist version                               # 版本号
+./target/release/linklist init                       # 初始化（建库迁移，不预置账号）
+./target/release/linklist reset-password <username>  # 交互式重置口令（忘记密码时用）
+./target/release/linklist version                    # 版本号
 ```
 
 ## 数据库

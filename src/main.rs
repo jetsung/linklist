@@ -29,11 +29,9 @@ fn print_help() {
 
 子命令:
   run                             启动 Web 服务（无参数时默认执行）
-  init [--admin-password <密码>] [配置文件路径]
-                                  初始化项目：生成配置文件（已存在不覆盖）→ 创建数据目录
-                                  → 连接数据库并执行迁移；--admin-password 在库中无用户时
-                                  预置管理员账号 admin（也可用环境变量
-                                  LINKLIST_ADMIN_PASSWORD，两者都缺省则跳过预置）
+  init [配置文件路径]              初始化项目：生成配置文件（已存在不覆盖）→ 创建数据目录
+                                  → 连接数据库并执行迁移；不预置任何账号，首次打开 Web
+                                  界面完成初始化/登录的账号自动成为超级用户
   reset-password <username>       交互式重置指定用户的口令（不回显输入）
   version                         输出版本号（--version / -V 等价）
   help                            输出本帮助（--help / -h 等价）
@@ -156,8 +154,11 @@ async fn run_server(cfg: Config) -> i32 {
             if let Err(e) = session_store.migrate().await {
                 eprintln!("会话表迁移失败: {e}");
             }
-            crate::web::api_router(state)
-                .layer(build_session_layer(session_store, cfg.session_ttl_secs))
+            crate::web::api_router(state).layer(build_session_layer(
+                session_store,
+                cfg.session_ttl_secs,
+                cfg.session_cookie_secure,
+            ))
         }
         crate::db::DbPool::Postgres(_) => {
             let session_pool = match sqlx::pool::PoolOptions::<sqlx::Postgres>::new()
@@ -175,8 +176,11 @@ async fn run_server(cfg: Config) -> i32 {
             if let Err(e) = session_store.migrate().await {
                 eprintln!("会话表迁移失败: {e}");
             }
-            crate::web::api_router(state)
-                .layer(build_session_layer(session_store, cfg.session_ttl_secs))
+            crate::web::api_router(state).layer(build_session_layer(
+                session_store,
+                cfg.session_ttl_secs,
+                cfg.session_cookie_secure,
+            ))
         }
         // MySQL 会话存储与主库同库（tower-sessions-sqlx-store 的 MySqlStore），
         // 过期策略与其余后端一致（build_session_layer 统一配置）。
@@ -211,8 +215,11 @@ async fn run_server(cfg: Config) -> i32 {
             if let Err(e) = session_store.migrate().await {
                 eprintln!("会话表迁移失败: {e}");
             }
-            crate::web::api_router(state)
-                .layer(build_session_layer(session_store, cfg.session_ttl_secs))
+            crate::web::api_router(state).layer(build_session_layer(
+                session_store,
+                cfg.session_ttl_secs,
+                cfg.session_cookie_secure,
+            ))
         }
     };
 
@@ -241,14 +248,24 @@ async fn run_server(cfg: Config) -> i32 {
     }
 }
 
-/// 按会话存储类型构建会话管理层（SQLite/PostgreSQL 共用过期策略）。
-fn build_session_layer<S>(store: S, session_ttl_secs: u64) -> tower_sessions::SessionManagerLayer<S>
+/// 按会话存储类型构建会话管理层（SQLite/PostgreSQL/MySQL 共用过期策略）。
+///
+/// SameSite 必须为 Lax：OIDC 授权回跳是自 IdP 站点发起的跨站顶级导航，
+/// Strict 会让浏览器不携带会话 Cookie，导致回调读不到 state 而报
+/// "state 缺失或已过期"（对齐上游 Django 会话 Cookie 默认 Lax）。
+/// `cookie_secure`：HTTPS 部署建议开启，Cookie 仅经 HTTPS 传输。
+fn build_session_layer<S>(
+    store: S,
+    session_ttl_secs: u64,
+    cookie_secure: bool,
+) -> tower_sessions::SessionManagerLayer<S>
 where
     S: tower_sessions::session_store::SessionStore,
 {
-    use tower_sessions::{Expiry, SessionManagerLayer};
+    use tower_sessions::{Expiry, SessionManagerLayer, cookie::SameSite};
     SessionManagerLayer::new(store)
-        .with_secure(false)
+        .with_secure(cookie_secure)
+        .with_same_site(SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::seconds(
             session_ttl_secs as i64,
         )))
@@ -256,24 +273,14 @@ where
 
 /// `init`：完整项目初始化（spec cli：init 完整初始化）。
 /// 流程：生成配置文件（已存在则不覆盖）→ 创建数据目录 → 按 `database_url`
-/// 连接数据库并执行迁移 →（可选）预置管理员。每步输出结果；幂等，重复执行安全。
+/// 连接数据库并执行迁移。不预置任何账号；首个登录/初始化的账号自动成为
+/// 超级用户。每步输出结果；幂等，重复执行安全。
 fn cmd_init(args: &[String]) -> i32 {
-    // 参数解析：[配置文件路径] / --admin-password <密码>。
+    // 参数解析：[配置文件路径]。
     let mut config_path: Option<&str> = None;
-    let mut admin_password: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--admin-password" => match args.get(i + 1) {
-                Some(p) => {
-                    admin_password = Some(p.clone());
-                    i += 2;
-                }
-                None => {
-                    eprintln!("--admin-password 需要一个口令参数");
-                    return 2;
-                }
-            },
             "--help" | "-h" => {
                 print_help();
                 return 0;
@@ -348,27 +355,9 @@ fn cmd_init(args: &[String]) -> i32 {
             }
         );
 
-        // 5. 预置管理员（--admin-password 优先于 LINKLIST_ADMIN_PASSWORD；仅无用户时生效）。
-        let pw = admin_password.or_else(|| cfg.admin_password.clone());
-        match pw {
-            Some(p) if !p.is_empty() => {
-                if p.len() < 8 {
-                    eprintln!("管理员口令至少 8 位");
-                    return 2;
-                }
-                match crate::models::provision_admin(&pool, "admin", &p).await {
-                    Ok(Some(user)) => {
-                        println!("已预置管理员账号: {} (id={})", user.username, user.id);
-                    }
-                    Ok(None) => println!("库中已有用户，跳过管理员预置"),
-                    Err(e) => {
-                        eprintln!("预置管理员失败: {e}");
-                        return 2;
-                    }
-                }
-            }
-            _ => println!("未指定管理员口令，跳过预置（首次打开 Web 界面注册首个用户即管理员）"),
-        }
+        // 5. 不预置任何账号：首个登录/初始化的账号自动成为超级用户
+        //    （统一入口见 models::create_user_auto_admin）。
+        println!("数据库初始化完成，未预置任何账号；首个登录/初始化的账号将成为超级用户");
         0
     })
 }
@@ -448,8 +437,6 @@ mod tests {
     fn init_bad_option_returns_exit_code_2() {
         // 未知参数 → 2。
         assert_eq!(cmd_init(&["--nope".to_string()]), 2);
-        // --admin-password 缺参数 → 2。
-        assert_eq!(cmd_init(&["--admin-password".to_string()]), 2);
     }
 
     #[test]
@@ -488,53 +475,52 @@ mod tests {
     }
 
     #[test]
-    fn init_admin_password_provisions_admin_when_empty() {
-        // 空库 + --admin-password → 创建 admin 账号；重复执行幂等跳过。
+    fn init_creates_empty_db_then_first_login_becomes_admin() {
+        // init 只建库不预置账号；随后首个登录/初始化账号自动成为超级用户。
+        // 注意：cmd_init 内部自建 tokio runtime，故本测试须为同步测试，
+        // 异步断言放独立 runtime 中执行。
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         // 用 LINKLIST_DATA_DIR 指向临时目录（apply_env 读取环境变量）。
         // SAFETY: 测试专用；该变量仅由本测试与被测代码读写，测试用例间无并发读写依赖。
         unsafe { std::env::set_var("LINKLIST_DATA_DIR", dir.path().join("data")) };
-        assert_eq!(
-            cmd_init(&[
-                path.to_str().unwrap().to_string(),
-                "--admin-password".to_string(),
-                "password123".to_string(),
-            ]),
-            0
-        );
+        assert_eq!(cmd_init(&[path.to_str().unwrap().to_string()]), 0);
         let db_path = dir.path().join("data/linklist.db");
         assert!(
             db_path.exists(),
             "SQLite 数据库应已创建: {}",
             db_path.display()
         );
-        // 幂等：再次执行（含预置）应成功且不报错。
-        assert_eq!(
-            cmd_init(&[
-                path.to_str().unwrap().to_string(),
-                "--admin-password".to_string(),
-                "password123".to_string(),
-            ]),
-            0
-        );
         // SAFETY: 测试专用；仅清除本测试自行设置的变量，无并发读写依赖。
         unsafe { std::env::remove_var("LINKLIST_DATA_DIR") };
-    }
-
-    #[tokio::test]
-    async fn provision_admin_skips_when_users_exist() {
-        let pool = crate::db::connect_in_memory().await.unwrap();
-        // 空库 → 创建成功；已有用户 → None 跳过。
-        let created = crate::models::provision_admin(&pool, "admin", "password123")
-            .await
-            .unwrap();
-        assert!(created.is_some(), "空库应创建管理员");
-        assert!(created.unwrap().is_admin);
-        let skipped = crate::models::provision_admin(&pool, "admin", "password123")
-            .await
-            .unwrap();
-        assert!(skipped.is_none(), "已有用户时应跳过预置");
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                // init 后库中无任何用户（不预置 admin）。
+                // database_url 传空 → 走 sqlite_url（临时目录中的库）。
+                let pool =
+                    crate::db::connect_any("", &format!("sqlite://{}?mode=rwc", db_path.display()))
+                        .await
+                        .unwrap();
+                assert_eq!(
+                    crate::models::last_user_count(&pool).await.unwrap(),
+                    0,
+                    "init 不应预置任何账号"
+                );
+                // 首个登录/初始化账号 → 超级用户。
+                let first = crate::models::create_user_auto_admin(&pool, "admin", "password123")
+                    .await
+                    .unwrap();
+                assert!(first.is_admin);
+                // 后续账号 → 普通用户。
+                let second = crate::models::create_user_auto_admin(&pool, "alice", "password123")
+                    .await
+                    .unwrap();
+                assert!(!second.is_admin);
+            });
     }
 
     #[tokio::test]
@@ -578,7 +564,7 @@ mod tests {
                 .await
                 .unwrap();
             let store = tower_sessions_sqlx_store::SqliteStore::new(pool);
-            let _layer = build_session_layer(store, 604800);
+            let _layer = build_session_layer(store, 604800, false);
         });
     }
 }

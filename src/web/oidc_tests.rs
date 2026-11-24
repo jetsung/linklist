@@ -119,6 +119,7 @@ async fn auth_proxy_header_creates_and_logs_in() {
     let app = app_with_config(cfg).await;
     use tower::ServiceExt;
     let resp = app
+        .clone()
         .oneshot(
             axum::http::Request::builder()
                 .uri("/api/v1/auth/status")
@@ -129,12 +130,95 @@ async fn auth_proxy_header_creates_and_logs_in() {
         .await
         .unwrap();
     assert!(resp.status().is_success());
+    // 先提取会话 cookie（resp 会被 into_body 消耗）。
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["authenticated"], serde_json::Value::Bool(true));
     assert_eq!(json["username"], "proxyuser");
+    // 空库首个 SSO 登录用户 → 自动成为超级用户。
+    let resp = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/v1/auth/me")
+                .header("cookie", cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["is_admin"], serde_json::Value::Bool(true));
+}
+
+#[tokio::test]
+async fn auth_proxy_second_sso_user_is_plain_user() {
+    let cfg = crate::config::Config {
+        enable_auth_proxy: true,
+        ..Default::default()
+    };
+    let app = app_with_config(cfg).await;
+    use tower::ServiceExt;
+    // 首个 SSO 用户占用管理员席位。
+    let resp = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/v1/auth/status")
+                .header("REMOTE_USER", "first_admin")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    // 第二个 SSO 用户建号 → 普通用户。
+    let resp = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/v1/auth/status")
+                .header("REMOTE_USER", "second_user")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let resp = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/v1/auth/me")
+                .header("cookie", cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["username"], "second_user");
+    assert_eq!(json["is_admin"], serde_json::Value::Bool(false));
 }
 
 #[tokio::test]
@@ -172,6 +256,21 @@ async fn spawn_mock_idp() -> (
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) {
+    spawn_mock_idp_with(serde_json::json!({
+        "sub": "user-1",
+        "email": "oidc-user@example.com",
+    }))
+    .await
+}
+
+/// 可自定义 userinfo 返回的 mock IdP（验证用户名 claim 的合并/回退行为）。
+async fn spawn_mock_idp_with(
+    userinfo: serde_json::Value,
+) -> (
+    String,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let counter = Arc::new(AtomicUsize::new(0));
@@ -188,6 +287,7 @@ async fn spawn_mock_idp() -> (
             };
             let counter = counter_clone.clone();
             let dcounter = dcounter_clone.clone();
+            let userinfo = userinfo.clone();
             tokio::spawn(async move {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
                 let mut buf = [0u8; 8192];
@@ -249,15 +349,7 @@ async fn spawn_mock_idp() -> (
                             "application/json",
                         )
                     } else if path.starts_with("/userinfo") {
-                        (
-                            "200 OK",
-                            serde_json::json!({
-                                "sub": "user-1",
-                                "email": "oidc-user@example.com",
-                            })
-                            .to_string(),
-                            "application/json",
-                        )
+                        ("200 OK", userinfo.to_string(), "application/json")
                     } else if path.starts_with("/authorize") {
                         ("302 Found", String::new(), "text/plain")
                     } else {
@@ -317,6 +409,11 @@ async fn oidc_full_flow_login_and_callback() {
     );
     assert!(location.contains("state="));
     assert!(location.contains("code_challenge="));
+    // redirect_uri 默认按 Host 推导并带尾斜杠（对齐上游），且经过 percent-encoding。
+    assert!(
+        location.contains("redirect_uri=http%3A%2F%2Flinklist.local%2Foidc%2Fcallback%2F"),
+        "location={location}"
+    );
 
     // 2. 模拟 IdP 回跳：带 code/state → callback。state 需与 login 会话一致；
     //    测试里直接取 login 302 的 state，但 session cookie 在两次 oneshot 间不共享，
@@ -340,6 +437,132 @@ async fn oidc_full_flow_login_and_callback() {
         .await
         .unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn oidc_redirect_uri_config_override() {
+    // LINKLIST_OIDC_REDIRECT_URI：显式配置的回调地址优先于按 Host 推导。
+    let (idp_base, _calls, _dcalls) = spawn_mock_idp().await;
+    let cfg = crate::config::Config {
+        enable_oidc: true,
+        oidc_authorization_endpoint: Some(format!("{idp_base}/authorize")),
+        oidc_token_endpoint: Some(format!("{idp_base}/token")),
+        oidc_client_id: Some("test-client".into()),
+        oidc_client_secret: Some("test-secret".into()),
+        oidc_sign_algo: "HS256".into(),
+        oidc_redirect_uri: Some("https://app.example.com/custom/cb".into()),
+        ..Default::default()
+    };
+    let app = app_with_config(cfg).await;
+    use tower::ServiceExt;
+    let resp = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/oidc/login")
+                .header("Host", "linklist.local")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap()
+        .to_string();
+    assert!(
+        location.contains("redirect_uri=https%3A%2F%2Fapp.example.com%2Fcustom%2Fcb"),
+        "location={location}"
+    );
+    assert!(!location.contains("linklist.local"), "location={location}");
+}
+
+#[tokio::test]
+async fn oidc_username_claim_uses_userinfo_claims() {
+    // Authelia 类 IdP：ID Token 仅含 sub（随机 ID），preferred_username 等
+    // profile claims 在 userinfo 返回。用户名应取合并后的 preferred_username，
+    // 而非回退到 sub 建出随机 ID 账号。
+    let (idp_base, _calls, _dcalls) = spawn_mock_idp_with(serde_json::json!({
+        "sub": "user-1",
+        "preferred_username": "jetsung",
+    }))
+    .await;
+    let cfg = crate::config::Config {
+        enable_oidc: true,
+        oidc_authorization_endpoint: Some(format!("{idp_base}/authorize")),
+        oidc_token_endpoint: Some(format!("{idp_base}/token")),
+        oidc_userinfo_endpoint: Some(format!("{idp_base}/userinfo")),
+        oidc_client_id: Some("test-client".into()),
+        oidc_client_secret: Some("test-secret".into()),
+        oidc_sign_algo: "HS256".into(),
+        oidc_username_claim: "preferred_username".into(),
+        ..Default::default()
+    };
+    let pool = crate::db::connect_in_memory().await.unwrap();
+    let app = build_app_with_config(pool.clone(), None, cfg).await;
+    use tower::ServiceExt;
+
+    // 1. /oidc/login → 302，取 state 与会话 Cookie。
+    let resp = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/oidc/login")
+                .header("Host", "linklist.local")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap()
+        .to_string();
+    let state = location
+        .split("state=")
+        .nth(1)
+        .and_then(|s| s.split('&').next())
+        .unwrap_or("")
+        .to_string();
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    // 2. 携带会话 Cookie 回跳 callback → 校验、建号、登录。
+    let resp = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(format!("/oidc/callback?code=test-code&state={state}"))
+                .header("Host", "linklist.local")
+                .header("cookie", cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+
+    // 3. 用户名取自 userinfo 的 preferred_username，而非 ID Token 的 sub。
+    let u = crate::models::find_by_username(&pool, "jetsung")
+        .await
+        .unwrap()
+        .expect("应按 preferred_username 建号 jetsung");
+    assert!(u.is_admin, "空库首个 OIDC 登录用户应为管理员");
+    assert!(
+        crate::models::find_by_username(&pool, "user-1")
+            .await
+            .unwrap()
+            .is_none(),
+        "不应以 sub（随机 ID）建号"
+    );
 }
 
 #[tokio::test]

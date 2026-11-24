@@ -11,7 +11,7 @@
 |---|---|---|
 | 数据库 | 见下文按后端操作 | 书签/标签/用户/设置等结构化数据 |
 | 数据目录 | `data/`（Compose 挂载到容器 `/app/data`） | 快照 HTML、预览图、favicon 缓存、上传资产；SQLite 模式下还含数据库文件本身 |
-| 配置 | `config.toml`、`docker/.env`、systemd 环境文件 | 含数据库凭据与 `LINKLIST_ADMIN_PASSWORD` 等，建议脱敏保存 |
+| 配置 | `config.toml`、`docker/.env`、systemd 环境文件 | 含数据库凭据等敏感信息，建议脱敏保存 |
 
 ## SQLite（默认）
 

@@ -18,7 +18,7 @@
 
 | 分组 | 端点 |
 |---|---|
-| 认证 | `POST /auth/setup`（首个管理员） `POST /auth/login` `POST /auth/logout` `GET /auth/me` `GET /auth/status` `POST /auth/password`；Token：`GET/POST /auth/tokens` `DELETE /auth/tokens/{id}` |
+| 认证 | `POST /auth/setup`（首次初始化，首个账号即超级用户） `POST /auth/login` `POST /auth/logout` `GET /auth/me` `GET /auth/status` `POST /auth/password`；Token：`GET/POST /auth/tokens` `DELETE /auth/tokens/{id}` |
 | 书签 | `GET/POST /bookmarks` `GET/PATCH/DELETE /bookmarks/{id}` `PUT /bookmarks/{id}/tags` `GET /bookmarks/tags` `GET /bookmarks/tags/{name}` `POST /bookmarks/{id}/archive\|unarchive` |
 | 批量 | `POST /bookmarks/bulk/tags/add\|tags/remove\|mark-read\|mark-unread\|delete` |
 | 抓取 | `POST /bookmarks/{id}/capture`（body `{"kind":"metadata\|snapshot\|archive_lookup"}`） `GET /bookmarks/{id}/capture-tasks` `POST /capture-tasks/{task_id}/retry` `GET /bookmarks/{id}/snapshot` |
@@ -27,12 +27,12 @@
 | 订阅 | `GET /feed/public_shared[?key=...]` |
 | 偏好 | `GET/PUT /profile` `PUT /profile/auto-tagging-rules` `GET/PUT /profile/search-preferences` `GET /profile/feed-key` |
 | 共享 | `GET /shared`（登录） `GET /shared/tags` `GET /shared/users` `GET /shared/public`（匿名） `GET /shared/viewer-profile` |
-| 管理 | `POST/GET /admin/users` `POST /admin/users/{id}/deactivate\|activate\|reset-password` `GET /admin/data/bookmarks` `GET /admin/tasks` `GET/PUT /admin/settings` `GET /admin/audit-logs` |
+| 管理 | `POST/GET /admin/users` `DELETE /admin/users/{id}` `POST /admin/users/{id}/deactivate\|activate\|reset-password` `GET /admin/data/bookmarks` `GET /admin/tasks` `GET/PUT /admin/settings` `GET /admin/audit-logs` |
 
 ## 初始化流程（程序化）
 
 ```bash
-# 1. 首次初始化管理员（仅当库中无用户；也可用 init --admin-password 预置）
+# 1. 首次初始化（仅当库中无用户；提交的账号即超级用户，口令以请求为准）
 curl -X POST http://localhost:9090/api/v1/auth/setup \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"password123"}'

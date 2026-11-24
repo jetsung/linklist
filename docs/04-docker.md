@@ -74,10 +74,13 @@ config.toml，见[配置参考](02-configuration.md)）。常用：
 
 ```yaml
 environment:
-  LINKLIST_ADMIN_PASSWORD: "change-me"   # 预置管理员口令（仅首次 setup 生效）
   LINKLIST_GUEST_SHARING: "true"         # 允许匿名访客查看公开共享书签
   LINKLIST_LOG: info
 ```
+
+> 账号规则：容器首启不预置任何账号。首个打开 Web 界面完成初始化/登录的
+> 账号（含 OIDC / 反向代理认证）自动成为超级用户；忘记口令时在容器内执行
+> `linklist reset-password <username>` 重置。
 
 ## 备份与恢复
 

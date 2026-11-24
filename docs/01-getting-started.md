@@ -25,23 +25,16 @@ cargo build --release
 # 4. 启动服务（默认 0.0.0.0:9090）
 ./target/release/linklist run
 
-# 5. 打开 http://localhost:9090/login 注册首个用户（自动成为管理员）
+# 5. 打开 http://localhost:9090/login 完成首次初始化/登录（首个账号自动成为超级用户）
 ```
 
-## 方式二：初始化时预置管理员
+> 账号规则：系统不预置任何账号，**首个登录/初始化的账号自动成为超级用户**，
+> 其后注册的账号均为普通用户。忘记口令时用 `linklist reset-password <username>`
+> 在服务器本机交互式重置。
 
-不想打开浏览器走"首个注册即管理员"引导的话，直接在 `init` 时预置：
+重复执行 `init` 幂等安全：已存在的配置文件不覆盖、已初始化的库不重复迁移。
 
-```bash
-./target/release/linklist init --admin-password 'your-password'
-# 管理员用户名固定为 admin
-# 也可用环境变量：LINKLIST_ADMIN_PASSWORD='your-password' linklist init
-```
-
-重复执行 `init` 幂等安全：已存在的配置文件不覆盖、已初始化的库不重复迁移、
-已有用户时跳过预置。
-
-## 方式三：Docker
+## 方式二：Docker
 
 ```bash
 mkdir -p data && chown -R 65532:65532 ./data

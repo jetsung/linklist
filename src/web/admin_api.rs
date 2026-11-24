@@ -18,11 +18,10 @@ fn require_admin(auth: &AuthUser) -> Result<(), AppError> {
 pub struct CreateUserRequest {
     pub username: String,
     pub password: String,
-    #[serde(default)]
-    pub is_admin: bool,
 }
 
-/// `POST /api/v1/admin/users`：创建用户。
+/// `POST /api/v1/admin/users`：创建用户（固定为普通用户；系统为单管理员模型，
+/// 唯一管理员即首次登录者）。
 pub async fn create_user(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -36,7 +35,7 @@ pub async fn create_user(
     if req.password.len() < 8 {
         return Err(AppError::BadRequest("口令至少 8 位".into()));
     }
-    match crate::models::create_user(&state.pool, &username, &req.password, req.is_admin).await {
+    match crate::models::create_user(&state.pool, &username, &req.password, false).await {
         Ok(u) => Ok((
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!({"id": u.id, "username": u.username, "is_admin": u.is_admin})),
@@ -73,6 +72,7 @@ pub async fn list_users(
 }
 
 /// `POST /api/v1/admin/users/{id}/deactivate`：停用用户（会话/Token 立即失效——认证时校验 is_active）。
+/// 不能停用自己（系统为单管理员模型，唯一管理员即首次登录者）。
 pub async fn deactivate_user(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -82,26 +82,7 @@ pub async fn deactivate_user(
     if id == auth.0.id {
         return Err(AppError::BadRequest("不能停用自己".into()));
     }
-    let result = crate::db::q("UPDATE users SET is_active = 0 WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound);
-    }
-    // 吊销该用户全部 API Token。
-    crate::db::q("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
-        .bind(chrono::Utc::now().to_rfc3339())
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-    crate::models::audit(
-        &state.pool,
-        Some(id),
-        crate::models::audit_action::USER_DEACTIVATED,
-        "admin",
-    )
-    .await;
+    crate::models::admin_deactivate_user(&state.pool, auth.0.id, id).await?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -112,13 +93,25 @@ pub async fn activate_user(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_admin(&auth)?;
-    let result = crate::db::q("UPDATE users SET is_active = 1 WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound);
+    crate::models::admin_activate_user(&state.pool, id).await?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// `DELETE /api/v1/admin/users/{id}`：删除用户。
+///
+/// 关联数据（书签、标签、API Token、会话等）由数据库外键
+/// `ON DELETE CASCADE` 级联清理；审计日志保留（user_id 置空）。
+/// 不能删除自己（系统为单管理员模型，唯一管理员即首次登录者）。
+pub async fn delete_user(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_admin(&auth)?;
+    if id == auth.0.id {
+        return Err(AppError::BadRequest("不能删除自己".into()));
     }
+    crate::models::admin_delete_user(&state.pool, auth.0.id, id).await?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

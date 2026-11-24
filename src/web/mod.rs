@@ -32,6 +32,9 @@ pub fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/oidc/login", axum::routing::get(oidc::oidc_login))
         .route("/oidc/callback", axum::routing::get(oidc::oidc_callback))
+        // IdP 预注册的 redirect_uri 可能带尾斜杠（上游 mozilla_django_oidc
+        // 惯例），回跳形式与授权请求一致，两种路径均受理。
+        .route("/oidc/callback/", axum::routing::get(oidc::oidc_callback))
         .route("/api/v1/auth/status", axum::routing::get(auth_api::status))
         .route("/api/v1/auth/setup", axum::routing::post(auth_api::setup))
         .route("/api/v1/auth/login", axum::routing::post(auth_api::login))
@@ -242,6 +245,10 @@ pub fn api_router(state: AppState) -> Router {
         .route(
             "/api/v1/admin/users",
             axum::routing::get(admin_api::list_users).post(admin_api::create_user),
+        )
+        .route(
+            "/api/v1/admin/users/{id}",
+            axum::routing::delete(admin_api::delete_user),
         )
         .route(
             "/api/v1/admin/users/{id}/deactivate",

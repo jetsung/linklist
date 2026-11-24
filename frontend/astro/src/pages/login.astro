@@ -16,8 +16,10 @@ import Layout from '../layouts/Layout.astro';
       <input type="submit" value="登录" class="btn btn-primary width-100 mt-4" />
     </form>
     <div id="login-disabled" class="mt-4" hidden>
-      <p class="form-label">密码登录已禁用（纯 SSO 部署），请使用下方 SSO 登录。</p>
-      <a id="oidc-login" class="btn btn-primary width-100 mt-2" href="/oidc/login" hidden>OIDC 登录</a>
+      <p class="form-label">密码登录已禁用（纯 SSO 部署），请使用 SSO 登录。</p>
+    </div>
+    <div id="oidc-section" class="mt-4" hidden>
+      <a id="oidc-login" class="btn btn-primary width-100" href="/oidc/login">OIDC 登录</a>
     </div>
   </main>
 </Layout>
@@ -26,32 +28,46 @@ import Layout from '../layouts/Layout.astro';
   import { post, get } from '../scripts/api';
   import { toastError } from '../scripts/toast';
 
+  const status = await get('/api/v1/auth/status').catch(() => null);
+
   // 已登录则直接跳转。
-  try { const s = await get('/api/v1/auth/status'); if (s?.authenticated) window.location.href = '/bookmarks'; } catch {}
+  if (status?.authenticated) window.location.href = '/bookmarks';
 
-  // 对齐上游 LD_DISABLE_LOGIN_FORM / enable_oidc：按运行时开关隐藏密码表单、展示 SSO 入口。
-  try {
-    const s = await get('/api/v1/auth/status');
-    const disabled = s?.disable_login_form === true;
-    const form = document.getElementById('login-form') as HTMLFormElement | null;
-    const disabledBox = document.getElementById('login-disabled');
-    if (disabled && form && disabledBox) {
-      form.hidden = true;
-      disabledBox.hidden = false;
-      if (s?.enable_oidc) (document.getElementById('oidc-login') as HTMLAnchorElement).hidden = false;
-    }
-  } catch {}
+  const form = document.getElementById('login-form') as HTMLFormElement | null;
+  const disabledBox = document.getElementById('login-disabled');
+  const oidcSection = document.getElementById('oidc-section');
 
-  document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+  // 对齐上游 LD_DISABLE_LOGIN_FORM / LD_ENABLE_OIDC：两个开关解耦——
+  // enable_oidc 时展示 OIDC 登录入口（与密码表单并存）；disable_login_form
+  // 时才隐藏密码表单并提示走 SSO。
+  if (status?.disable_login_form === true && form && disabledBox) {
+    form.hidden = true;
+    disabledBox.hidden = false;
+  }
+  if (status?.enable_oidc && oidcSection) {
+    oidcSection.hidden = false;
+  }
+
+  // 首次使用（库中无用户）：提交的账号即超级用户，按钮文案相应提示。
+  const submitBtn = form?.querySelector<HTMLInputElement>('input[type="submit"]');
+  if (status?.needs_setup && submitBtn) {
+    submitBtn.value = '初始化（首个账号即超级用户）';
+  }
+
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const username = (document.getElementById('username') as HTMLInputElement).value.trim();
+    const password = (document.getElementById('password') as HTMLInputElement).value;
     try {
-      await post('/api/v1/auth/login', {
-        username: (document.getElementById('username') as HTMLInputElement).value,
-        password: (document.getElementById('password') as HTMLInputElement).value,
-      });
+      if (status?.needs_setup) {
+        // 初始化：创建超级用户账号并自动写入会话。
+        await post('/api/v1/auth/setup', { username, password });
+      } else {
+        await post('/api/v1/auth/login', { username, password });
+      }
       window.location.href = '/bookmarks';
-    } catch {
-      toastError('用户名或密码不正确，请重试。', { blocking: true });
+    } catch (err: any) {
+      toastError(err?.message || '用户名或密码不正确，请重试。', { blocking: true });
     }
   });
 </script>

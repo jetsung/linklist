@@ -12,7 +12,6 @@
 # 容器使用默认端口 9090 与默认数据目录（工作目录 /app 下的 ./data，即
 # /app/data），无需注入 LINKLIST_LISTEN / LINKLIST_DATA_DIR；其余可选配置仍
 # 通过 LINKLIST_* 环境变量注入（优先级高于 config.toml，容器内无需配置文件）：
-#   LINKLIST_ADMIN_PASSWORD   预置管理员口令（仅首次 setup 时生效）。可选。
 #   LINKLIST_GUEST_SHARING    是否允许匿名访客查看公开共享书签。可选。
 #   LINKLIST_LOG              日志级别（RUST_LOG 语法），可选。
 #
@@ -37,8 +36,6 @@ services:
     volumes:
       - ../data:/app/data
     environment: {}
-      # 可选：预置管理员口令（仅首次 setup 时生效），建议写入 docker/.env 或直接 export
-      # LINKLIST_ADMIN_PASSWORD: "${LINKLIST_ADMIN_PASSWORD}"
       # 可选：允许匿名访客查看公开共享书签
       # LINKLIST_GUEST_SHARING: "true"
       # 日志级别（RUST_LOG 语法），可选

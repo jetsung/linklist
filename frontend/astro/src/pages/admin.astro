@@ -108,8 +108,17 @@ import Layout from '../layouts/Layout.astro';
           });
           return b;
         };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm';
+        delBtn.textContent = '删除';
+        delBtn.addEventListener('click', async () => {
+          if (!(await confirmDialog(`确定要删除用户 ${u.username} 吗？其书签、标签、Token 等数据将一并删除，此操作不可恢复。`))) return;
+          try { await del(`/api/v1/admin/users/${u.id}`); toastSuccess('删除成功'); loadUsers(); }
+          catch (e: any) { sayErr(e.message); }
+        });
         td.append(
           mk(u.is_active ? '停用' : '启用', `/api/v1/admin/users/${u.id}/${u.is_active ? 'deactivate' : 'activate'}`),
+          delBtn,
         );
         tr.append(td); rows.append(tr);
       }

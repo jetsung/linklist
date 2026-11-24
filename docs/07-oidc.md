@@ -26,7 +26,7 @@ LinkList 支持 OIDC（OpenID Connect）单点登录：采用**授权码流程 +
 | `LINKLIST_OIDC_CLIENT_SECRET` | 视算法 | 无 | 客户端密钥（HS256 必填；RS256 建议也配） |
 | `LINKLIST_OIDC_JWKS_ENDPOINT` | RS256 | 无 | IdP 的 JWKS 端点（RS256 验签用）；Issuer 方式下可省略 |
 | `LINKLIST_OIDC_SIGN_ALGO` | 否 | `RS256` | ID Token 签名算法：`RS256`（走 JWKS）或 `HS256`（走 client_secret） |
-| `LINKLIST_OIDC_USERNAME_CLAIM` | 否 | `email` | 从 claims 提取用户名的字段（如 `preferred_username`、`sub`） |
+| `LINKLIST_OIDC_USERNAME_CLAIM` | 否 | `email` | 从 claims 提取用户名的字段（如 `preferred_username`、`sub`）；claims 为 **ID Token 与 userinfo 端点结果的合并**（userinfo 字段优先） |
 | `LINKLIST_OIDC_USER_ENDPOINT` | 否 | 无 | userinfo 端点（ID Token 缺用户名 claim 时兜底）；Issuer 方式下可省略 |
 
 ## 接入步骤
@@ -50,12 +50,13 @@ IdP 不提供发现文档、或需要覆盖某个端点时，逐项配置（见�
 ### 通用步骤
 
 1. **在 IdP 注册应用**：类型选"机密客户端"或"公共客户端 + PKCE"，重定向
-   URI 填 `http://<服务地址>/oidc/callback`。
+   URI 填 `http://<服务地址>/oidc/callback/`（**带尾部斜杠**，与服务端推导
+   值一致；不一致时也可用 `LINKLIST_OIDC_REDIRECT_URI` 指定，见下文）。
 2. **配置环境变量**（Issuer 方式见上；手动方式从 IdP 的发现文档
    `/.well-known/openid-configuration` 抄下各端点）。
 3. **重启服务**，打开登录页 `http://<服务地址>/login`，应出现"OIDC 登录"
    按钮；点击后跳转 IdP 授权页。
-4. **授权登录**：IdP 认证后回跳 `/oidc/callback`，LinkList 校验通过即自动
+4. **授权登录**：IdP 认证后回跳 `/oidc/callback/`，LinkList 校验通过即自动
    建号并登录，跳转首页。
 
 ## 配置示例
@@ -80,13 +81,18 @@ export LINKLIST_OIDC_CLIENT_SECRET="your-client-secret"
 
 ## 账号与权限行为
 
-- 回调校验通过后按 `username_claim` 提取用户名，**库中不存在则自动创建**
-  普通用户（非管理员），随即建立会话登录，并记录 `login`（来源 `oidc`）
-  审计日志。
+- 回调校验通过后按 `username_claim` 提取用户名，**库中不存在则自动创建**。
+  claims 取自 **ID Token 与 userinfo 的合并结果**：部分 IdP（如 Authelia）的
+  ID Token 只含 `sub`（随机 ID），`preferred_username` 等字段在 userinfo 中
+  返回——若发现建出的用户名是随机 ID 而非登录名，请确认 `userinfo_endpoint`
+  已配置（Issuer 自动发现时自带），并将 `LINKLIST_OIDC_USERNAME_CLAIM` 设为
+  `preferred_username`。
+  账号，随即建立会话登录，并记录 `login`（来源 `oidc`）审计日志。
+- **首个账号即超级用户**：库中无任何用户时，第一个经 OIDC 建号的账号自动
+  成为管理员（`is_admin=true`）并记录 `setup` 审计；其后自动建号的账号均为
+  普通用户。系统为**单管理员模型**：唯一管理员即首次登录的账号。
 - 已存在的同名用户直接登录；**已被停用的用户返回 403**。
 - OIDC 用户不使用密码登录（创建时写入随机占位口令）。
-- **首个管理员仍建议通过 `init --admin-password` 或首次 setup 预置**；
-  OIDC 自动建号不产生管理员。
 
 ## 纯 SSO 部署（关闭密码登录）
 
@@ -99,20 +105,34 @@ export LINKLIST_DISABLE_LOGIN_FORM=true
 # …其余 OIDC 端点与客户端配置同上
 ```
 
+## 回调地址（redirect_uri）
+
+授权请求的 `redirect_uri` 按请求的 `Host` 头推导，默认为
+`http(s)://<Host>/oidc/callback/`——**带尾部斜杠**，对齐上游
+mozilla_django_oidc 的惯例。IdP 侧预注册的 redirect_uri 必须与该值完全一致
+（含尾斜杠），否则授权时 IdP 报 `invalid_request: redirect_uri 不匹配`。
+
+若 IdP 预注册值与推导值不一致（历史注册、反代路径前缀等），可用环境变量
+显式指定：
+
+```bash
+export LINKLIST_OIDC_REDIRECT_URI="https://link.example.com/oidc/callback/"
+```
+
 ## 反向代理部署注意
 
-回调地址按请求的 `Host` 头推导（`http(s)://<Host>/oidc/callback`）。若置于
-Nginx/Caddy 等反代之后，请确保反代正确转发 `Host` 与协议头（如
+若置于 Nginx/Caddy 等反代之后，请确保反代正确转发 `Host` 与协议头（如
 `X-Forwarded-Proto: https`），否则推导出的回调地址与 IdP 注册值不一致会导致
-授权失败。
+授权失败；也可直接用 `LINKLIST_OIDC_REDIRECT_URI` 固定回调地址绕过推导。
 
 ## 常见问题排查
 
 | 现象 | 可能原因 |
 |---|---|
-| IdP 报 `redirect_uri` 不匹配 | 回调地址与注册值不一致（协议/域名/端口/路径），或反代未正确转发 Host |
-| 回调报 state 无效 | 授权跳转与会话间隔过久（state 有短时效），或登录会话丢失；重新从登录页进入 |
+| IdP 报 `redirect_uri` 不匹配 | 回调地址与注册值不一致（协议/域名/端口/路径，注意**尾斜杠**）；用 `LINKLIST_OIDC_REDIRECT_URI` 设为 IdP 预注册值，或把注册值改为 `https://<域名>/oidc/callback/` |
+| 回调报 state 缺失或已过期 | 授权跳转与会话间隔过久（state 有短时效）、登录会话丢失或反代未透传 Cookie；重新从登录页进入。旧版本会话 Cookie 为 `SameSite=Strict` 时，浏览器在自 IdP 的跨站回跳中不携带会话，需升级到修复版本 |
 | 日志出现 JWKS/验签失败 | `LINKLIST_OIDC_JWKS_ENDPOINT` 不可达、算法配置不符（RS256/HS256 混用）、或 client_secret 错误 |
 | 提示"缺少用户名 claim" | ID Token 与 userinfo 中均无所配字段；改 `LINKLIST_OIDC_USERNAME_CLAIM`（如 `preferred_username`）或补配 userinfo 端点 |
+| 建出的用户名是随机 ID（形如 UUID）而非登录名 | `username_claim` 字段不在 ID Token 中（Authelia 等把 `preferred_username` 放在 userinfo），回退用了 `sub`；确认 userinfo 端点可达并将 `LINKLIST_OIDC_USERNAME_CLAIM` 设为 `preferred_username`，删除误建用户后重新登录 |
 | 登录页没有 SSO 按钮 | `LINKLIST_ENABLE_OIDC` 未设为 `true` 或服务未重启生效 |
-| OIDC 用户登录后无法管理 | 自动建号均为普通用户；管理员需通过 `init --admin-password`、首次 setup 或管理端创建 |
+| OIDC 用户登录后无法管理 | 首个登录账号已是管理员；若管理员账号被锁，用 `linklist reset-password <username>` 重置后登录，或由管理员在管理端创建/提权 |

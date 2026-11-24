@@ -24,6 +24,9 @@ pub struct Config {
     /// 会话不活动过期时间（秒）。
     #[serde(default = "default_session_ttl")]
     pub session_ttl_secs: u64,
+    /// 会话 Cookie 是否加 Secure 标志（仅经 HTTPS 传输）；HTTPS 部署建议开启。
+    #[serde(default)]
+    pub session_cookie_secure: bool,
     /// API Token 有效期（天）；0 表示永不过期。
     #[serde(default)]
     pub token_ttl_days: u64,
@@ -48,9 +51,6 @@ pub struct Config {
     /// 允许抓取的内网主机白名单（逗号分隔）。
     #[serde(default)]
     pub allowed_internal_hosts: Vec<String>,
-    /// 预置管理员口令（仅首次 setup 时生效）。
-    #[serde(default)]
-    pub admin_password: Option<String>,
     /// 启用 OIDC 登录（对齐 LD_ENABLE_OIDC）。
     #[serde(default)]
     pub enable_oidc: bool,
@@ -77,6 +77,11 @@ pub struct Config {
     pub oidc_issuer: Option<String>,
     #[serde(default = "default_oidc_username_claim")]
     pub oidc_username_claim: String,
+    /// 显式指定 OIDC 回调地址（redirect_uri）。缺省按请求 Host 推导为
+    /// `{base}/oidc/callback/`（带尾斜杠，对齐上游 mozilla_django_oidc 惯例）。
+    /// 当 IdP 预注册的 redirect_uri 与推导值不一致时配置此项。
+    #[serde(default)]
+    pub oidc_redirect_uri: Option<String>,
     /// 启用反向代理认证头（对齐 LD_ENABLE_AUTH_PROXY）。
     #[serde(default)]
     pub enable_auth_proxy: bool,
@@ -162,6 +167,7 @@ impl Default for Config {
             database_url: String::new(),
             log: default_log(),
             session_ttl_secs: default_session_ttl(),
+            session_cookie_secure: false,
             token_ttl_days: 0,
             guest_sharing: false,
             login_max_failures: default_login_max_failures(),
@@ -170,7 +176,6 @@ impl Default for Config {
             fetch_max_bytes: default_fetch_max_bytes(),
             fetch_max_redirects: default_fetch_max_redirects(),
             allowed_internal_hosts: Vec::new(),
-            admin_password: None,
             enable_oidc: false,
             oidc_authorization_endpoint: None,
             oidc_token_endpoint: None,
@@ -181,6 +186,7 @@ impl Default for Config {
             oidc_client_secret: None,
             oidc_sign_algo: default_oidc_sign_algo(),
             oidc_username_claim: default_oidc_username_claim(),
+            oidc_redirect_uri: None,
             enable_auth_proxy: false,
             auth_proxy_username_header: default_auth_proxy_header(),
             auth_proxy_logout_url: None,
@@ -232,6 +238,10 @@ impl Config {
         if let Some(v) = env_u64("LINKLIST_SESSION_TTL") {
             self.session_ttl_secs = v;
         }
+        if let Some(v) = env_str("LINKLIST_SESSION_COOKIE_SECURE") {
+            self.session_cookie_secure =
+                matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
+        }
         if let Some(v) = env_u64("LINKLIST_TOKEN_TTL") {
             self.token_ttl_days = v;
         }
@@ -260,9 +270,6 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
-        }
-        if let Some(v) = env_str("LINKLIST_ADMIN_PASSWORD") {
-            self.admin_password = Some(v);
         }
         if let Some(v) = env_str("LINKLIST_ENABLE_OIDC") {
             self.enable_oidc =
@@ -294,6 +301,9 @@ impl Config {
         }
         if let Some(v) = env_str("LINKLIST_OIDC_USERNAME_CLAIM") {
             self.oidc_username_claim = v;
+        }
+        if let Some(v) = env_str("LINKLIST_OIDC_REDIRECT_URI") {
+            self.oidc_redirect_uri = Some(v);
         }
         if let Some(v) = env_str("LINKLIST_ENABLE_AUTH_PROXY") {
             self.enable_auth_proxy =
@@ -368,6 +378,10 @@ log = "info"
 
 # 会话不活动过期时间（秒；环境变量 LINKLIST_SESSION_TTL）
 session_ttl_secs = 604800
+
+# 会话 Cookie 是否加 Secure 标志（仅经 HTTPS 传输；环境变量
+# LINKLIST_SESSION_COOKIE_SECURE）。HTTPS 反代部署建议设为 true
+session_cookie_secure = false
 
 # API Token 有效期（天；0 = 永不过期；环境变量 LINKLIST_TOKEN_TTL）
 token_ttl_days = 0

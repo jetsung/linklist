@@ -18,6 +18,7 @@ use base64::Engine;
 use serde::Deserialize;
 use tower_sessions::Session;
 
+use crate::db::DbPool;
 use crate::error::AppError;
 use crate::models::{self, audit_action};
 use crate::web::auth_api::{AppState, SESSION_USER_KEY};
@@ -198,12 +199,20 @@ pub async fn oidc_login(
     use sha2::Digest;
     let challenge = b64url(&sha2::Sha256::digest(verifier.as_bytes()));
 
-    // redirect_uri 按请求 Host 推导（反代/测试场景均可）。
-    let base = crate::web::base_url_from_headers(&headers);
-    let redirect_uri = format!("{base}/oidc/callback");
+    // redirect_uri：优先显式配置（LINKLIST_OIDC_REDIRECT_URI）；否则按请求
+    // Host 推导为 `{base}/oidc/callback/`——带尾斜杠，对齐上游
+    // mozilla_django_oidc 惯例，保证与 IdP 预注册值一致。
+    let redirect_uri = resolve_redirect_uri(cfg, &headers);
 
+    // 授权请求 query 值做标准 percent-encoding（RFC 3986），避免 IdP 严格
+    // 解析时因未编码字符出错。
     let mut url = format!(
-        "{auth_endpoint}?response_type=code&client_id={client_id}&state={state_param}&nonce={nonce}&redirect_uri={redirect_uri}&scope=openid%20email%20profile&code_challenge={challenge}&code_challenge_method=S256"
+        "{auth_endpoint}?response_type=code&client_id={}&state={}&nonce={}&redirect_uri={}&scope=openid%20email%20profile&code_challenge={}&code_challenge_method=S256",
+        urlenc(client_id),
+        urlenc(&state_param),
+        urlenc(&nonce),
+        urlenc(&redirect_uri),
+        urlenc(&challenge),
     );
     if cfg.oidc_sign_algo.is_empty() {
         url.push_str("&alg=RS256");
@@ -269,8 +278,8 @@ pub async fn oidc_callback(
         .filter(|s| !s.is_empty())
         .ok_or(AppError::BadRequest("OIDC client_id 未配置".into()))?;
     let client_secret = cfg.oidc_client_secret.as_deref().unwrap_or_default();
-    let base = crate::web::base_url_from_headers(&headers);
-    let redirect_uri = format!("{base}/oidc/callback");
+    // token 请求的 redirect_uri 必须与授权请求完全一致（OAuth2 规范）。
+    let redirect_uri = resolve_redirect_uri(cfg, &headers);
 
     let verifier: Option<String> = session
         .get::<(String, i64)>(OIDC_VERIFIER_KEY)
@@ -319,30 +328,32 @@ pub async fn oidc_callback(
         .await?;
         claims = verified;
     }
-    if !claims.contains_key("sub") {
-        // ID Token 缺失/不可验时退回 userinfo（仍要求 access_token）。
-        let userinfo_endpoint = endpoints
-            .userinfo
-            .as_deref()
-            .ok_or_else(|| AppError::BadRequest("OIDC 未返回可验证的 ID Token".into()))?;
-        let access_token = token_resp
-            .access_token
-            .as_deref()
-            .ok_or_else(|| AppError::BadRequest("OIDC 未返回 access_token".into()))?;
-        let userinfo: serde_json::Value = client
+    // 合并 userinfo claims（若可用）：Authelia 等 IdP 的 profile 类 claims
+    // （preferred_username/name/email）主要经 userinfo 端点返回，ID Token 可
+    // 能仅含 sub——只看 ID Token 会把 sub（随机 ID）当用户名。userinfo 字段
+    // 优先覆盖；userinfo 不可用时不阻断登录（ID Token claims 兜底）。
+    let userinfo_endpoint = endpoints.userinfo.as_deref().filter(|s| !s.is_empty());
+    let access_token = token_resp.access_token.as_deref().filter(|s| !s.is_empty());
+    if let (Some(userinfo_endpoint), Some(access_token)) = (userinfo_endpoint, access_token) {
+        let resp = client
             .get(userinfo_endpoint)
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|e| AppError::BadRequest(format!("OIDC userinfo 请求失败: {e}")))?
-            .error_for_status()
-            .map_err(|e| AppError::BadRequest(format!("OIDC userinfo 被拒绝: {e}")))?
-            .json()
-            .await
-            .map_err(|e| AppError::BadRequest(format!("OIDC userinfo 解析失败: {e}")))?;
-        if let Some(obj) = userinfo.as_object() {
-            claims = obj.clone();
+            .ok()
+            .filter(|r| r.status().is_success());
+        let userinfo = match resp {
+            Some(r) => r.json::<serde_json::Value>().await.ok(),
+            None => None,
+        };
+        if let Some(obj) = userinfo.and_then(|v| v.as_object().cloned()) {
+            for (k, v) in obj {
+                claims.insert(k, v);
+            }
         }
+    }
+    if claims.is_empty() {
+        return Err(AppError::BadRequest("OIDC 未返回可用的用户信息".into()));
     }
 
     let username_claim = cfg.oidc_username_claim.as_str();
@@ -357,11 +368,8 @@ pub async fn oidc_callback(
         })?;
 
     // 自动建号 + 登录（对齐 OIDC_USERNAME_ALGO 语义：以 claim 值为用户名）。
-    let user = match models::find_by_username(&state.pool, &username).await? {
-        Some(u) if u.is_active => u,
-        Some(_) => return Err(AppError::Forbidden),
-        None => models::create_user(&state.pool, &username, &random_password(), false).await?,
-    };
+    // 首个账号即超级用户：库中无用户时建号自动授管理员。
+    let user = ensure_oidc_user(&state.pool, &username).await?;
     session
         .insert(SESSION_USER_KEY, user.id)
         .await
@@ -375,6 +383,47 @@ pub async fn oidc_callback(
 /// 生成占位随机口令（OIDC 用户不走密码登录）。
 fn random_password() -> String {
     random_b64(24)
+}
+
+/// 按 OIDC 登录语义取/建用户：
+/// - 沿用"首个账号即超级用户"规则（`create_user_auto_admin`，库中无用户时
+///   建号即管理员）；
+/// - 已被停用的用户返回 403。
+pub(crate) async fn ensure_oidc_user(
+    pool: &DbPool,
+    username: &str,
+) -> Result<models::User, AppError> {
+    match models::find_by_username(pool, username).await? {
+        Some(u) if u.is_active => Ok(u),
+        Some(_) => Err(AppError::Forbidden),
+        None => models::create_user_auto_admin(pool, username, &random_password()).await,
+    }
+}
+
+/// 解析 OIDC 回调地址（redirect_uri）：优先显式配置
+/// （`LINKLIST_OIDC_REDIRECT_URI`）；否则按请求 Host 推导为
+/// `{base}/oidc/callback/`——带尾斜杠，对齐上游 mozilla_django_oidc 惯例。
+/// 授权请求与 token 请求必须使用同一值（OAuth2 规范）。
+fn resolve_redirect_uri(cfg: &crate::config::Config, headers: &axum::http::HeaderMap) -> String {
+    if let Some(uri) = cfg.oidc_redirect_uri.as_deref().filter(|s| !s.is_empty()) {
+        return uri.to_string();
+    }
+    let base = crate::web::base_url_from_headers(headers);
+    format!("{base}/oidc/callback/")
+}
+
+/// query 值 percent-encoding：RFC 3986 unreserved 字符之外的均按 %XX 编码。
+fn urlenc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 fn now_ts() -> i64 {
