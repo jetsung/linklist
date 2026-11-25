@@ -15,20 +15,8 @@
     grid-gap: var(--unit-9);
   }
 
-  ld-filter-drawer-trigger {
-    display: none;
-  }
-
-  @media (max-width: 840px) {
-    section.side-panel {
-      display: none;
-    }
-
-    ld-filter-drawer-trigger {
-      display: inline-block;
-    }
-  }
-
+  /* 侧栏折叠（后台"隐藏侧边栏"设置或移动端窄视口）：
+     主区占满整行，侧栏本体隐藏，内容经页头"筛选"按钮的抽屉访问。 */
   &.collapse-side-panel {
     main {
       grid-column: span var(--grid-columns);
@@ -36,10 +24,6 @@
 
     .side-panel {
       display: none;
-    }
-
-    ld-filter-drawer-trigger {
-      display: inline-block;
     }
   }
 }
@@ -87,6 +71,14 @@
   }
 
   /* Search option menu styles */
+
+  /* 搜索选项菜单的展开/收起全由 JS 的 .active 类控制：禁用 :focus-within
+     自动展开路径（--dropdown-focus-display 见 dropdowns.css），避免点击
+     "应用/保存为默认"后焦点残留在菜单内导致菜单常驻。键盘可达性由脚本
+     在齿轮按钮 focus 时补齐展开。 */
+  & .search-options {
+    --dropdown-focus-display: none;
+  }
 
   & .dropdown {
     & .menu {

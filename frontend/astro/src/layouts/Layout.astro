@@ -66,7 +66,9 @@ const { title, bare = false, publicHeader = false, authHeader = false } = Astro.
       // 自定义 CSS + 主题偏好：静态构建无法按请求渲染，客户端探测后按需注入。
       // 登录用户读本人 /api/v1/profile；匿名读"生效资料"（访客资料 guest_profile_user，
       // 对齐上游 LinkdingMiddleware 为匿名请求注入的 user_profile）。
-      (async () => {
+      // 生效资料 Promise 挂到 window.__effectiveProfile，供页面脚本（书签页渲染
+      // 偏好、搜索偏好）复用，避免同屏重复请求 profile / viewer-profile。
+      const __effectiveProfile = (async () => {
         let p = null;
         try {
           const r = await fetch('/api/v1/profile', { credentials: 'same-origin' });
@@ -78,6 +80,10 @@ const { title, bare = false, publicHeader = false, authHeader = false } = Astro.
             if (r.ok) p = await r.json();
           } catch { /* 匿名且无访客资料：保持默认 */ }
         }
+        return p;
+      })();
+      window.__effectiveProfile = __effectiveProfile;
+      __effectiveProfile.then((p) => {
         if (!p) return;
         // 主题：生效资料 theme 覆盖（登录用户写 localStorage 供下次首屏免闪使用）。
         if (p.theme === 'light' || p.theme === 'dark') {
@@ -92,7 +98,7 @@ const { title, bare = false, publicHeader = false, authHeader = false } = Astro.
           link.href = '/custom_css';
           document.head.append(link);
         }
-      })();
+      });
     </script>
     <script is:inline data-prefetch>
       // 链接悬停预取脚本（上游 head.html turbo-prefetch 的等价实现）。
@@ -271,6 +277,8 @@ const { title, bare = false, publicHeader = false, authHeader = false } = Astro.
         document.body.classList.add('auth-ready');
         return authed;
       })();
+      // 暴露探测结果给页面脚本复用（如书签页登录态判定），避免重复请求 auth/status。
+      (window as unknown as { __authReady?: Promise<boolean> }).__authReady = probeAuth;
       // 权限相关元素清理：匿名移除 data-auth-only（如共享页 Manage tags 入口）；
       // 「管理」入口仅管理员可见（对齐 linkding is_superuser），非管理员移除。
       // 必须等登录态探测完成，否则读到未写入的 data-authed 造成误删。

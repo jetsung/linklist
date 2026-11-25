@@ -46,6 +46,20 @@ fn bind_strs(query: DbQuery, binds: &[String]) -> DbQuery {
 const KEYWORD_COND: &str = "(LOWER(b.title) LIKE ? OR LOWER(b.url) LIKE ? \
   OR LOWER(b.description) LIKE ? OR LOWER(b.notes) LIKE ?)";
 
+/// 共享列表排序 SQL（登录态 `/api/v1/shared` 与公开 `/api/v1/shared/public` 共用）。
+/// 标题排序大小写不敏感：LOWER(b.title)（替代 SQLite 专有 COLLATE NOCASE，三库通用）。
+fn shared_order_sql(sort: Option<&str>) -> &'static str {
+    match sort {
+        Some("added_asc") => "ORDER BY b.created_at ASC",
+        Some("added_desc") | Some("created") => "ORDER BY b.created_at DESC",
+        Some("modified_asc") => "ORDER BY b.updated_at ASC",
+        Some("modified_desc") | Some("updated") => "ORDER BY b.updated_at DESC",
+        Some("title_asc") | Some("title") => "ORDER BY LOWER(b.title) ASC",
+        Some("title_desc") => "ORDER BY LOWER(b.title) DESC",
+        _ => "ORDER BY b.created_at DESC",
+    }
+}
+
 fn q_like(q: &Option<String>) -> Option<String> {
     q.as_ref().map(|q| format!("%{}%", q.to_lowercase()))
 }
@@ -159,15 +173,7 @@ pub async fn list_shared(
     let total: i64 = total_q.fetch_one(&state.pool).await.map(|r| r.get_i64(0))?;
 
     // 标题排序大小写不敏感：LOWER(b.title)（替代 SQLite 专有 COLLATE NOCASE，三库通用）。
-    let order_sql = match params.sort.as_deref() {
-        Some("added_asc") => "ORDER BY b.created_at ASC",
-        Some("added_desc") | Some("created") => "ORDER BY b.created_at DESC",
-        Some("modified_asc") => "ORDER BY b.updated_at ASC",
-        Some("modified_desc") | Some("updated") => "ORDER BY b.updated_at DESC",
-        Some("title_asc") | Some("title") => "ORDER BY LOWER(b.title) ASC",
-        Some("title_desc") => "ORDER BY LOWER(b.title) DESC",
-        _ => "ORDER BY b.created_at DESC",
-    };
+    let order_sql = shared_order_sql(params.sort.as_deref());
     let list_sql = format!(
         "SELECT b.*, u.username, {} \
          {base} {order_sql} LIMIT ? OFFSET ?",
@@ -358,9 +364,11 @@ pub async fn list_public_shared(
         .await
         .map(|r| r.get_i64(0))?;
 
-    // 与登录态列表一致：附带 username 与 tags_agg（row_json 依赖这两列）。
+    // 与登录态列表一致：附带 username 与 tags_agg（row_json 依赖这两列）；
+    // 排序同样响应 sort 参数（与 /api/v1/shared 共用同一套排序语义）。
+    let order_sql = shared_order_sql(params.sort.as_deref());
     let list_sql = format!(
-        "SELECT b.*, u.username, {} {base} ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
+        "SELECT b.*, u.username, {} {base} {order_sql} LIMIT ? OFFSET ?",
         tags_agg_sql(dialect)
     );
     let rows = bind_strs(crate::db::q(&list_sql), &cond_binds)

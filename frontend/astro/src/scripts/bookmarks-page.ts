@@ -703,13 +703,15 @@ async function load() {
 interface BundleItem { id: number; name: string; }
 
 // ---- 侧栏偏好（对齐上游 collapse_side_panel / hide_bundles）----
-// applySidePanelPrefs：按 profile 设置把侧栏折叠为主区通栏、移除组合区块，
+// applySidePanelPrefs：按"折叠状态"同步页面结构——主区占满、侧栏本体隐藏，
 // 并在页头放"筛选"按钮，点击打开右侧抽屉展示侧栏内容（对齐 linkding
 // ld-filter-drawer-trigger / ld-filter-drawer，本项目无 lit，直接 DOM 实现）。
+// 折叠来源：后台"隐藏侧边栏"设置或移动端窄视口（见 initBookmarksPage），
+// 任一成立即折叠；解除折叠时还原（移除按钮、关抽屉、内容搬回侧栏）。
 function applySidePanelPrefs(collapseSidePanel: boolean, hideBundles: boolean) {
   const page = document.querySelector('ld-bookmark-page.bookmarks-page') as HTMLElement | null;
   const panel = document.querySelector('.side-panel') as HTMLElement | null;
-  if (page && collapseSidePanel) page.classList.add('collapse-side-panel');
+  if (page) page.classList.toggle('collapse-side-panel', collapseSidePanel);
   if (hideBundles) {
     // 组合区块（bookmarks/archived 页首个 section；shared 页无组合 section）。
     const bundlesSection = document.querySelector('section[aria-labelledby$="-bundles-heading"]')
@@ -719,17 +721,27 @@ function applySidePanelPrefs(collapseSidePanel: boolean, hideBundles: boolean) {
     document.querySelectorAll('.filter-drawer-body section[aria-labelledby$="-bundles-heading"]')
       .forEach((el) => el.remove());
   }
-  if (!page || !panel || !collapseSidePanel) return;
-
-  // 折叠时主区占满；在页头控件区放"筛选"按钮（对齐上游 Filters 按钮）。
+  if (!page || !panel) return;
   const controls = page.querySelector('.header-controls');
-  if (controls && !controls.querySelector('.filter-drawer-trigger')) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn ml-2 filter-drawer-trigger';
-    btn.textContent = '筛选';
-    btn.addEventListener('click', () => openFilterDrawer(panel));
-    controls.append(btn);
+  if (collapseSidePanel) {
+    // 折叠时主区占满；在页头控件区放"筛选"按钮（对齐上游 Filters 按钮）。
+    if (controls && !controls.querySelector('.filter-drawer-trigger')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn ml-2 filter-drawer-trigger';
+      btn.textContent = '筛选';
+      btn.addEventListener('click', () => openFilterDrawer(panel));
+      controls.append(btn);
+    }
+  } else {
+    // 解除折叠（如视口切回桌面）：移除"筛选"按钮；若抽屉开着先关闭并把内容搬回侧栏。
+    controls?.querySelector('.filter-drawer-trigger')?.remove();
+    const drawer = document.getElementById('filter-drawer');
+    if (drawer?.classList.contains('active')) {
+      drawer.classList.remove('active');
+      const body = drawer.querySelector('.filter-drawer-body') as HTMLElement;
+      if (body.children.length) panel.append(...body.children);
+    }
   }
 }
 
@@ -737,9 +749,7 @@ function openFilterDrawer(panel: HTMLElement) {
   // 再次点击"筛选"按钮：若抽屉已打开则关闭（切换状态）。
   const existing = document.getElementById('filter-drawer') as HTMLElement | null;
   if (existing?.classList.contains('active')) {
-    existing.classList.remove('active');
-    const body = existing.querySelector('.filter-drawer-body') as HTMLElement;
-    if (panel && body.children.length) panel.append(...body.children);
+    closeFilterDrawer(existing, panel);
     return;
   }
   // 复用页面上已有的抽屉（重复打开不再teleport）。
@@ -752,7 +762,7 @@ function openFilterDrawer(panel: HTMLElement) {
     drawer.setAttribute('aria-modal', 'true');
     drawer.innerHTML = `
       <div class="modal-overlay" data-close-drawer></div>
-      <div class="modal-container" role="dialog" aria-modal="true">
+      <div class="modal-container" role="dialog" aria-modal="true" tabindex="-1">
         <div class="modal-header">
           <h2>筛选</h2>
           <button type="button" class="btn btn-noborder close" aria-label="关闭" data-close-drawer>×</button>
@@ -760,21 +770,31 @@ function openFilterDrawer(panel: HTMLElement) {
         <div class="modal-body filter-drawer-body"></div>
       </div>`;
     document.body.append(drawer);
-    const close = () => {
-      drawer!.classList.remove('active');
-      // 关闭时把筛选内容搬回侧栏（对齐上游 teleportBack）。
-      const body = drawer!.querySelector('.filter-drawer-body') as HTMLElement;
-      const panel = document.querySelector('.side-panel') as HTMLElement | null;
-      if (panel && body.children.length) panel.append(...body.children);
-    };
-    drawer.querySelectorAll('[data-close-drawer]').forEach((el) => el.addEventListener('click', close));
-    drawer.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Escape') close(); });
+    // Escape 关闭：document 级监听（仅抽屉展开时生效），不依赖抽屉内焦点——
+    // 移动端触屏点按后焦点未必移入抽屉，绑在抽屉元素上会收不到按键。
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const d = document.getElementById('filter-drawer');
+      if (d?.classList.contains('active')) closeFilterDrawer(d, panel);
+    });
+    drawer.querySelectorAll('[data-close-drawer]').forEach((el) => el.addEventListener('click', () => {
+      const d = document.getElementById('filter-drawer');
+      if (d) closeFilterDrawer(d, panel);
+    }));
   }
   // 把侧栏内容搬进抽屉（对齐上游 teleport）。
   const body = drawer.querySelector('.filter-drawer-body') as HTMLElement;
   body.append(...panel.children);
   drawer.classList.add('active');
   (drawer.querySelector('.modal-container') as HTMLElement | null)?.focus();
+}
+
+// 关闭筛选抽屉：隐藏并把侧栏内容搬回（对齐上游 teleportBack）；重复调用安全。
+function closeFilterDrawer(drawer: HTMLElement, panel: HTMLElement) {
+  if (!drawer.classList.contains('active')) return;
+  drawer.classList.remove('active');
+  const body = drawer.querySelector('.filter-drawer-body') as HTMLElement;
+  if (panel && body.children.length) panel.append(...body.children);
 }
 
 async function loadBundles() {
@@ -869,6 +889,18 @@ async function runBulkAction(action: string, tagString?: string) {
 // ---- 初始化 ----
 export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
   state.mode = mode;
+  // 移动端窄视口自动把侧栏折叠为"筛选"抽屉（对未登录访客同样生效），与后台
+  // "隐藏侧边栏"设置叠加：任一成立即折叠。同步首应用避免侧栏闪现；监听跨断点
+  // 切换（如平板旋转）以折叠/还原。
+  const mobileSidePanelQuery = window.matchMedia('(max-width: 840px)');
+  let profileCollapseSidePanel = false;
+  let profileHideBundles = false;
+  const syncSidePanel = () => applySidePanelPrefs(
+    profileCollapseSidePanel || mobileSidePanelQuery.matches,
+    profileHideBundles,
+  );
+  syncSidePanel();
+  mobileSidePanelQuery.addEventListener('change', syncSidePanel);
   const url = new URL(window.location.href);
   state.q = url.searchParams.get('q') || '';
   state.sharedUser = url.searchParams.get('user') || '';
@@ -886,28 +918,27 @@ export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
   // syncPrefControls 在下方定义；先留引用，供异步偏好加载后回填。
   let syncPrefControlsRef: (() => void) | null = null;
   applyPrefs(state.savedPrefs);
-  // 异步取已保存偏好，之后若 URL 没带参数则应用之（首屏先按默认渲染，避免阻塞）。
-  // 共享页匿名（本人偏好 401）时读"生效资料"里访客资料保存的搜索偏好（对齐上游 search_preferences）。
-  const loadSearchPrefs = () => get('/api/v1/profile/search-preferences').catch(() => {
-    if (mode !== 'shared') throw new Error('skip');
-    return get('/api/v1/shared/viewer-profile').then((vp: Record<string, unknown>) => {
-      const sp = (vp.search_preferences ?? {}) as Record<string, unknown>;
-      return { sort: sp.sort, shared: sp.shared, unread: sp.unread };
+  // 异步取已保存偏好在初始化序列（见底部 IIFE）中完成：先取得生效偏好（登录
+  // 用户本人偏好；共享页匿名时读"生效资料"里访客资料，对齐上游 search_preferences）
+  // 再执行首次列表加载，避免"默认参数先发一次、偏好到位后再发一次"的重复请求。
+  const readViewerPrefs = () => {
+    // 复用 Layout 主题探测已取回的生效资料（匿名=访客资料），避免重复请求。
+    const w = window as unknown as { __effectiveProfile?: Promise<Record<string, unknown> | null> };
+    const src = w.__effectiveProfile ?? get('/api/v1/shared/viewer-profile');
+    return src.then((vp) => {
+      const sp = ((vp ?? {}) as Record<string, unknown>).search_preferences ?? {};
+      const s = sp as Record<string, unknown>;
+      return { sort: s.sort, shared: s.shared, unread: s.unread };
     });
-  });
-  loadSearchPrefs().then((d) => {
-    state.savedPrefs = {
-      sort: typeof d.sort === 'string' ? d.sort : 'added_desc',
-      shared: d.shared === 'yes' || d.shared === 'no' ? d.shared : 'off',
-      unread: d.unread === 'yes' || d.unread === 'no' ? d.unread : 'off',
-    };
-    if (!sortParam && !sp && !up) {
-      applyPrefs(state.savedPrefs);
-      state.page = 1;
-      syncPrefControlsRef?.();
-      load().then(loadTags).catch(() => {});
-    }
-  }).catch(() => {});
+  };
+  const loadSearchPrefs = (authed: boolean) => {
+    // 匿名共享页直接读访客生效资料，跳过必 401 的本人偏好请求。
+    if (!authed && mode === 'shared') return readViewerPrefs();
+    return get('/api/v1/profile/search-preferences').catch(() => {
+      if (mode !== 'shared') throw new Error('skip');
+      return readViewerPrefs();
+    });
+  };
   if (SORT_VALUES.includes(sortParam)) state.sort = sortParam;
   if (sp === 'yes' || sp === 'no') state.sharedFilter = sp;
   if (up === 'yes' || up === 'no') state.unreadFilter = up;
@@ -990,28 +1021,43 @@ export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
     if (gear) gear.classList.toggle('badge', modified);
   };
 
-  // 搜索框右侧"过滤"按钮：点击在开/关之间切换（菜单显示纯靠 .dropdown:focus-within
-  // CSS，按钮点击后焦点仍在 dropdown 内所以保持展开；再点一次需主动移除 active 并
-  // blur 才能收起，同时兼容键盘/触屏）。
+  // 搜索框右侧"过滤"按钮：菜单展开/收起全由 .active 类控制（CSS 已对
+  // .search-options 禁用 :focus-within 自动展开路径）。点击齿轮在开/关间
+  // 切换；点击菜单外部或按 Escape 收起；键盘 Tab 聚焦齿轮时自动展开。
+  const searchOptionsEl = () => document.querySelector('.search-options') as HTMLElement | null;
   const closePrefsDropdown = () => {
-    document.querySelector('.search-options')?.classList.remove('active');
+    const dd = searchOptionsEl();
+    if (dd) {
+      dd.classList.remove('active');
+      // 焦点不得残留在菜单内部控件上（否则焦点类机制会让菜单重新常驻）。
+      const active = document.activeElement as HTMLElement | null;
+      if (active && dd.contains(active)) active.blur();
+    }
     (document.querySelector('.search-options .dropdown-toggle') as HTMLElement | null)?.blur();
   };
   const prefsToggle = document.querySelector('.search-options .dropdown-toggle') as HTMLElement | null;
   if (prefsToggle) {
+    // 点击齿轮在开/关之间切换。鼠标、触屏与键盘（Enter/Space 触发 click）统一走
+    // click：不要在 pointerdown/focus 阶段切换——触屏上 focus 晚于 pointerup 且先于
+    // click 触发，任何依赖 focus/pointer 时序的展开都会被随后的 click 二次切换，
+    // 导致移动端菜单"点了打不开"。
     prefsToggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      const dd = document.querySelector('.search-options') as HTMLElement | null;
+      const dd = searchOptionsEl();
       if (!dd) return;
-      const nowActive = dd.classList.toggle('active');
-      if (!nowActive) prefsToggle.blur();
+      if (!dd.classList.toggle('active')) closePrefsDropdown();
     });
-    // 点击页面其他位置时收起菜单（并同步移除 active，避免下次点击误判为"开着"）。
+    // 点击页面其他位置时收起菜单。
     document.addEventListener('click', (e) => {
-      const dd = document.querySelector('.search-options');
+      const dd = searchOptionsEl();
       if (dd?.classList.contains('active') && !dd.contains(e.target as Node)) {
         closePrefsDropdown();
       }
+    });
+    // Escape 收起菜单。
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (searchOptionsEl()?.classList.contains('active')) closePrefsDropdown();
     });
   }
   // 控件回填（shared 页没有 shared/unread 控件，自动跳过）。
@@ -1114,11 +1160,18 @@ export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
     try {
       // 渲染偏好来源：登录用户读本人 profile；共享页匿名（401）时读"生效资料"
       // （访客资料 guest_profile_user，对齐上游 request.user_profile 注入）。
+      // 优先复用 Layout 主题探测已取回的生效资料（window.__effectiveProfile），
+      // 避免同屏重复请求 profile / viewer-profile。
       let p: Record<string, unknown> | null = null;
-      try {
-        p = await get('/api/v1/profile');
-      } catch {
-        if (mode === 'shared') p = await get('/api/v1/shared/viewer-profile');
+      const w = window as unknown as { __effectiveProfile?: Promise<Record<string, unknown> | null> };
+      if (w.__effectiveProfile) {
+        p = await w.__effectiveProfile;
+      } else {
+        try {
+          p = await get('/api/v1/profile');
+        } catch {
+          if (mode === 'shared') p = await get('/api/v1/shared/viewer-profile');
+        }
       }
       if (!p) return;
       state.dateDisplay = ['absolute', 'hidden'].includes(String(p.bookmark_date_display)) ? (p.bookmark_date_display as 'relative' | 'absolute' | 'hidden') : 'relative';
@@ -1141,8 +1194,11 @@ export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
       state.tagGrouping = p.tag_grouping === 'alphabetical' ? 'alphabetical' : 'disabled';
       // 固定分页栏（后台"固定分页栏"）→ .bookmark-pagination.sticky。
       if (p.sticky_pagination) document.querySelector('.bookmark-pagination')?.classList.add('sticky');
-      // 侧栏偏好：折叠侧边栏 + 隐藏组合（对齐上游 user_profile.collapse_side_panel / hide_bundles）。
-      applySidePanelPrefs(!!p.collapse_side_panel, !!p.hide_bundles);
+      // 侧栏偏好：后台"隐藏侧边栏"与"隐藏组合"设置（与移动端窄视口自动折叠叠加，
+      // 对齐上游 user_profile.collapse_side_panel / hide_bundles）。
+      profileCollapseSidePanel = !!p.collapse_side_panel;
+      profileHideBundles = !!p.hide_bundles;
+      syncSidePanel();
       // 描述最大行数（后台"描述最大行数"设置）→ CSS 行截断变量。
       const maxLines = Number(p.bookmark_description_max_lines);
       if (Number.isFinite(maxLines) && maxLines > 0) {
@@ -1155,11 +1211,30 @@ export function initBookmarksPage(mode: 'active' | 'archived' | 'shared') {
   })();
   (async () => {
     try {
-      if (mode === 'shared') {
-        // 匿名共享页先探测登录态：未登录走公开共享接口（对齐 linkding 匿名 /bookmarks/shared）。
-        const s = await get('/api/v1/auth/status');
-        state.sharedAnon = !(s && s.authenticated);
+      // 登录态判定：优先复用 Layout 内联脚本的探测结果（window.__authReady），
+      // 避免重复请求 auth/status；均不可用时按未登录保守处理。
+      const w = window as unknown as { __authReady?: Promise<boolean> };
+      let authed: boolean;
+      if (w.__authReady) authed = await w.__authReady;
+      else authed = document.body.dataset.authed === '1';
+      if (!authed) {
+        document.getElementById('save-prefs')?.remove();
+        if (mode === 'shared') state.sharedAnon = true;
       }
+      // 先取生效偏好再首次加载：URL 未带偏好参数时应用已存偏好，避免重复请求。
+      try {
+        const d = await loadSearchPrefs(authed);
+        state.savedPrefs = {
+          sort: typeof d.sort === 'string' ? d.sort : 'added_desc',
+          shared: d.shared === 'yes' || d.shared === 'no' ? d.shared : 'off',
+          unread: d.unread === 'yes' || d.unread === 'no' ? d.unread : 'off',
+        };
+        if (!sortParam && !sp && !up) {
+          applyPrefs(state.savedPrefs);
+          state.page = 1;
+        }
+      } catch { /* 偏好读取失败按默认 */ }
+      syncPrefControlsRef?.();
       await load(); await loadTags(); await loadBundles();
     }
     catch (e: unknown) {
